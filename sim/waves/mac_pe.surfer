@@ -1,0 +1,29 @@
+# Surfer waveform viewer configuration for MAC PE
+# Usage: surfer sim/waves/mac_pe.vcd --commands sim/waves/mac_pe.surfer
+
+# Add clock and reset
+add_signal tb_mac_pe.clk
+add_signal tb_mac_pe.rst_n
+
+# Control signals
+add_signal tb_mac_pe.load_weight
+add_signal tb_mac_pe.enable
+add_signal tb_mac_pe.clear_acc
+
+# Weight path
+add_signal tb_mac_pe.weight_in
+add_signal tb_mac_pe.dut.weight_reg
+
+# Activation path
+add_signal tb_mac_pe.act_in
+add_signal tb_mac_pe.act_out
+
+# Accumulator path
+add_signal tb_mac_pe.psum_in
+add_signal tb_mac_pe.psum_out
+
+# Internal computation
+add_signal tb_mac_pe.dut.product
+
+# Zoom to fit all
+zoom_fit

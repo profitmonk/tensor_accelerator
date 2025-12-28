@@ -1,0 +1,46 @@
+[*]
+[*] GTKWave Analyzer v3.3.100
+[*]
+[dumpfile] "mac_pe.vcd"
+[savefile] "mac_pe.gtkw"
+[timestart] 0
+[size] 1400 800
+[pos] -1 -1
+*-16.000000 50 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[treeopen] tb_mac_pe.
+[treeopen] tb_mac_pe.dut.
+[sst_width] 250
+[signals_width] 200
+[sst_expanded] 1
+[sst_vpaned_height] 300
+@28
+tb_mac_pe.clk
+tb_mac_pe.rst_n
+@200
+-Control Signals
+@28
+tb_mac_pe.enable
+tb_mac_pe.load_weight
+tb_mac_pe.clear_acc
+@200
+-Weight Path
+@22
+tb_mac_pe.weight_in[7:0]
+tb_mac_pe.dut.weight_reg[7:0]
+@200
+-Activation Path
+@22
+tb_mac_pe.act_in[7:0]
+tb_mac_pe.act_out[7:0]
+@200
+-Partial Sum Path
+@22
+tb_mac_pe.psum_in[31:0]
+tb_mac_pe.psum_out[31:0]
+@200
+-Internal Computation
+@22
+tb_mac_pe.dut.product[15:0]
+tb_mac_pe.dut.product_ext[31:0]
+[pattern_trace] 1
+[pattern_trace] 0

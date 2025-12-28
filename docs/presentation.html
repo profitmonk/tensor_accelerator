@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FPGA Tensor Accelerator - Architecture Deep Dive</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/theme/black.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/monokai.min.css">
+    <style>
+        .reveal h1, .reveal h2, .reveal h3 { text-transform: none; }
+        .reveal pre { width: 100%; font-size: 0.55em; }
+        .reveal code { font-family: 'Fira Code', monospace; }
+        .reveal .small-text { font-size: 0.6em; }
+        .reveal .medium-text { font-size: 0.75em; }
+        .reveal table { font-size: 0.65em; }
+        .reveal .highlight { color: #42affa; }
+        .reveal .success { color: #5fba7d; }
+        .reveal .warning { color: #f5a623; }
+        .reveal .two-column { display: flex; gap: 20px; }
+        .reveal .two-column > * { flex: 1; }
+        .diagram { 
+            font-family: monospace; 
+            font-size: 0.5em; 
+            text-align: left;
+            background: #1a1a2e;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        .spec-table td, .spec-table th { 
+            padding: 8px 15px !important;
+            border: 1px solid #444 !important;
+        }
+        .architecture-box {
+            border: 2px solid #42affa;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px;
+            background: rgba(66, 175, 250, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="reveal">
+        <div class="slides">
+            
+            <!-- Title Slide -->
+            <section>
+                <h1>🚀 FPGA Tensor Accelerator</h1>
+                <h3>A Deep Dive into Systolic Array Architecture</h3>
+                <p class="medium-text">
+                    Production-Ready RTL for Neural Network Inference
+                </p>
+                <p class="small-text" style="margin-top: 50px;">
+                    <span class="highlight">409 GOPS</span> @ 200 MHz | 
+                    <span class="highlight">4 TPCs</span> | 
+                    <span class="highlight">1024 MACs</span>
+                </p>
+            </section>
+
+            <!-- Overview -->
+            <section>
+                <h2>What We're Building</h2>
+                <div class="two-column">
+                    <div>
+                        <h4>The Problem</h4>
+                        <ul class="medium-text">
+                            <li>Neural networks = matrix multiplications</li>
+                            <li>CPUs: Good at everything, great at nothing</li>
+                            <li>GPUs: Powerful but power-hungry</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4>The Solution</h4>
+                        <ul class="medium-text">
+                            <li>Custom hardware for matrix ops</li>
+                            <li>Systolic arrays = data reuse</li>
+                            <li>FPGA = flexibility + efficiency</li>
+                        </ul>
+                    </div>
+                </div>
+                <p class="fragment" style="margin-top: 30px;">
+                    <span class="highlight">Goal:</span> 10-100× faster than CPU, 10× more efficient than GPU
+                </p>
+            </section>
+
+            <!-- Architecture Overview -->
+            <section>
+                <h2>Architecture Overview</h2>
+                <pre class="diagram"><code>
+┌─────────────────────────────────────────────────────────────────────┐
+│                      TENSOR ACCELERATOR                             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐│
+│  │    TPC 0    │══│    TPC 1    │  │    TPC 2    │══│    TPC 3    ││
+│  │  ┌───────┐  │  │  ┌───────┐  │  │  ┌───────┐  │  │  ┌───────┐  ││
+│  │  │ 16×16 │  │  │  │ 16×16 │  │  │  │ 16×16 │  │  │  │ 16×16 │  ││
+│  │  │Systolic│  │  │  │Systolic│  │  │  │Systolic│  │  │  │Systolic│  ││
+│  │  └───────┘  │  │  └───────┘  │  │  └───────┘  │  │  └───────┘  ││
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘│
+│         └────────────────┴────────────────┴────────────────┘       │
+│                              │ NoC (Network on Chip)               │
+│                    ┌─────────▼─────────┐                           │
+│                    │  Global Controller │                           │
+│                    └─────────┬─────────┘                           │
+└──────────────────────────────┼──────────────────────────────────────┘
+                               │ AXI4
+                    ┌──────────▼──────────┐
+                    │   DDR4 / LPDDR5     │
+                    └─────────────────────┘
+                </code></pre>
+            </section>
+
+            <!-- Specifications -->
+            <section>
+                <h2>Specifications</h2>
+                <table class="spec-table">
+                    <tr>
+                        <th>Component</th>
+                        <th>Specification</th>
+                        <th>Details</th>
+                    </tr>
+                    <tr>
+                        <td>Systolic Arrays</td>
+                        <td>4 × (16×16)</td>
+                        <td>1024 MAC units total</td>
+                    </tr>
+                    <tr>
+                        <td>Data Type</td>
+                        <td>INT8</td>
+                        <td>32-bit accumulator</td>
+                    </tr>
+                    <tr>
+                        <td>Vector Unit</td>
+                        <td>64 lanes</td>
+                        <td>ReLU, GELU, Softmax</td>
+                    </tr>
+                    <tr>
+                        <td>On-chip SRAM</td>
+                        <td>2 MB</td>
+                        <td>16 banks, dual-port</td>
+                    </tr>
+                    <tr>
+                        <td>Peak Throughput</td>
+                        <td class="success">409 GOPS</td>
+                        <td>@ 200 MHz</td>
+                    </tr>
+                </table>
+            </section>
+
+            <!-- Part 1: MAC PE -->
+            <section>
+                <section>
+                    <h2>Part 1: The MAC PE</h2>
+                    <h4>Multiply-Accumulate Processing Element</h4>
+                    <p class="medium-text">The atomic building block of our accelerator</p>
+                    <pre class="diagram"><code>
+         weight_in
+             │
+             ▼
+        ┌─────────┐
+        │  W_REG  │ ← Weight stored here
+        └────┬────┘
+             │
+   act_in    │
+      │      ▼
+      │   ┌─────┐
+      ├──▶│  ×  │──┐
+      │   └─────┘  │
+      │            ▼
+      │         ┌─────┐    psum_in
+      │         │  +  │◀──────┘
+      │         └──┬──┘
+      │            │
+      ▼            ▼
+   act_out     psum_out
+                    </code></pre>
+                </section>
+
+                <section>
+                    <h3>MAC PE: The Code</h3>
+                    <pre><code class="verilog">module mac_pe #(
+    parameter DATA_WIDTH = 8,    // INT8
+    parameter ACC_WIDTH  = 32    // 32-bit accumulator
+)(
+    input  wire                  clk,
+    input  wire                  rst_n,
+    input  wire                  enable,
+    input  wire                  load_weight,
+    
+    input  wire [DATA_WIDTH-1:0] weight_in,
+    input  wire [DATA_WIDTH-1:0] act_in,
+    output reg  [DATA_WIDTH-1:0] act_out,
+    
+    input  wire [ACC_WIDTH-1:0]  psum_in,
+    output reg  [ACC_WIDTH-1:0]  psum_out
+);
+
+    reg [DATA_WIDTH-1:0] weight_reg;
+    
+    // Signed multiplication
+    wire signed [2*DATA_WIDTH-1:0] product = 
+        $signed(act_in) * $signed(weight_reg);
+    
+    always @(posedge clk) begin
+        if (load_weight) weight_reg <= weight_in;
+        if (enable) begin
+            act_out  <= act_in;
+            psum_out <= psum_in + product;
+        end
+    end
+endmodule</code></pre>
+                </section>
+
+                <section>
+                    <h3>MAC PE: Simulation Results</h3>
+                    <p class="medium-text">All 7 tests passing ✅</p>
+                    <pre><code class="text">╔════════════════════════════════════════════════════════════╗
+║           MAC Processing Element Testbench                 ║
+╚════════════════════════════════════════════════════════════╝
+
+[TEST 1] Loading weight = 3
+  PASS: weight_reg = 3 (expected 3)
+
+[TEST 2] Computing 3 × 4 + 0 = 12
+  PASS: psum_out = 12 (expected 12)
+
+[TEST 3] Accumulating: 12 + (3 × 5) = 27
+  PASS: psum_out = 27 (expected 27)
+
+[TEST 4] Signed multiply: 3 × (-2) = -6
+  PASS: psum_out = -6 (expected -6)
+
+╔════════════════════════════════════════════════════════════╗
+║   Passed: 7    Failed: 0                                   ║
+╚════════════════════════════════════════════════════════════╝
+   >>> ALL TESTS PASSED! <<<</code></pre>
+                </section>
+
+                <section>
+                    <h3>MAC PE: Waveform</h3>
+                    <p class="medium-text">Viewing in Surfer waveform viewer</p>
+                    <pre class="diagram"><code>
+Time:     0    50   100   150   200   250   300
+          │    │     │     │     │     │     │
+clk       ┌┐┌┐┌┐┌┐┌┐┌┐┌┐┌┐┌┐┌┐┌┐┌┐┌┐┌┐┌┐┌┐┌┐
+          └┘└┘└┘└┘└┘└┘└┘└┘└┘└┘└┘└┘└┘└┘└┘└┘└┘
+
+rst_n     ────┐     ┌────────────────────────
+              └─────┘
+
+load_wt        ┌───┐
+          ─────┘   └─────────────────────────
+
+weight_in ─────╱ 3 ╲─────────────────────────
+
+enable               ┌───────────────────────
+          ───────────┘
+
+act_in    ───────────╱ 4 ╲───╱ 5 ╲───────────
+
+psum_out  ───────────────────╱ 12╲───╱ 27╲───
+                    </code></pre>
+                    <p class="small-text">
+                        Run: <code>surfer sim/waves/mac_pe.vcd</code>
+                    </p>
+                </section>
+            </section>
+
+            <!-- Part 2: Systolic Array -->
+            <section>
+                <section>
+                    <h2>Part 2: Systolic Array</h2>
+                    <h4>16×16 Grid = 256 MACs Working in Harmony</h4>
+                    <pre class="diagram"><code>
+                    Weights (load once, stay in place)
+                              ↓ ↓ ↓ ↓
+                    ┌────┬────┬────┬────┐
+  Activations  →    │ PE │→PE │→PE │→PE │
+  flow in           ├────┼────┼────┼────┤
+  from left    →    │ PE │→PE │→PE │→PE │
+                    ├────┼────┼────┼────┤
+               →    │ PE │→PE │→PE │→PE │
+                    ├────┼────┼────┼────┤
+               →    │ PE │→PE │→PE │→PE │
+                    └────┴────┴────┴────┘
+                      ↓    ↓    ↓    ↓
+                    Results emerge from bottom
+                    </code></pre>
+                </section>
+
+                <section>
+                    <h3>Why "Systolic"?</h3>
+                    <div class="two-column">
+                        <div>
+                            <h4>Like a Beating Heart ❤️</h4>
+                            <ul class="medium-text">
+                                <li>Data "pulses" through rhythmically</li>
+                                <li>Each PE processes one beat</li>
+                                <li>Results emerge after filling</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <h4>Key Benefits</h4>
+                            <ul class="medium-text">
+                                <li><span class="success">Data reuse</span> - each weight used 16 times</li>
+                                <li><span class="success">Local connections</span> - no long wires</li>
+                                <li><span class="success">High throughput</span> - 256 MACs/cycle</li>
+                            </ul>
+                        </div>
+                    </div>
+                </section>
+
+                <section>
+                    <h3>Weight-Stationary Dataflow</h3>
+                    <pre class="diagram"><code>
+Step 1: Load Weights (columns)       Step 2: Stream Activations
+┌────┬────┬────┬────┐               ┌────┬────┬────┬────┐
+│ W00│ W01│ W02│ W03│          A00→ │    │    │    │    │
+├────┼────┼────┼────┤          A10→ │    │    │    │    │  (skewed)
+│ W10│ W11│ W12│ W13│          A20→ │    │    │    │    │
+├────┼────┼────┼────┤          A30→ │    │    │    │    │
+│ W20│ W21│ W22│ W23│               └────┴────┴────┴────┘
+├────┼────┼────┼────┤
+│ W30│ W31│ W32│ W33│               Step 3: Accumulate & Drain
+└────┴────┴────┴────┘               Results: C00, C01, C02, C03
+   ↑ stays in place                         C10, C11, C12, C13
+                                            ...
+                    </code></pre>
+                </section>
+
+                <section>
+                    <h3>Generate Loop: Creating 256 PEs</h3>
+                    <pre><code class="verilog">generate
+    for (row = 0; row < 16; row = row + 1) begin : pe_row
+        for (col = 0; col < 16; col = col + 1) begin : pe_col
+            
+            mac_pe pe_inst (
+                .clk        (clk),
+                .rst_n      (rst_n),
+                .enable     (pe_enable),
+                
+                // Horizontal: activation flows right
+                .act_in     (act_h[row][col]),
+                .act_out    (act_h[row][col+1]),
+                
+                // Vertical: partial sum flows down
+                .psum_in    (psum_v[row][col]),
+                .psum_out   (psum_v[row+1][col]),
+                
+                // Weight loading
+                .load_weight(load_weight[row][col]),
+                .weight_in  (weight_data[row])
+            );
+        end
+    end
+endgenerate</code></pre>
+                </section>
+
+                <section>
+                    <h3>State Machine</h3>
+                    <pre class="diagram"><code>
+        ┌──────────────────────────────────────────────────────┐
+        │                                                      │
+        ▼                                                      │
+    ┌──────┐  start   ┌──────┐  weights   ┌─────────┐        │
+    │ IDLE │────────▶│ LOAD │──loaded───▶│ COMPUTE │        │
+    └──────┘          └──────┘            └────┬────┘        │
+        ▲                                      │              │
+        │         ┌──────┐    results    ┌─────▼────┐        │
+        └─────────│ DONE │◀───drained────│  DRAIN   │────────┘
+                  └──────┘               └──────────┘
+                    </code></pre>
+                    <p class="medium-text">
+                        <span class="highlight">LOAD:</span> 16 cycles (one column per cycle)<br>
+                        <span class="highlight">COMPUTE:</span> K cycles (K = reduction dimension)<br>
+                        <span class="highlight">DRAIN:</span> 16 cycles (results emerge)
+                    </p>
+                </section>
+            </section>
+
+            <!-- Part 3: Matrix Multiplication -->
+            <section>
+                <section>
+                    <h2>Part 3: Matrix Multiplication</h2>
+                    <h4>How C = A × B Actually Happens</h4>
+                    <pre class="diagram"><code>
+C[i][j] = Σ(k=0 to K-1) A[i][k] × B[k][j]
+
+Example: 2×2 matrices
+A = [1 1]    B = [1 2]    C = [3  5]
+    [2 2]        [2 3]        [6 10]
+
+C[0][0] = A[0][0]×B[0][0] + A[0][1]×B[1][0]
+        = 1×1 + 1×2 = 3 ✓
+                    </code></pre>
+                </section>
+
+                <section>
+                    <h3>Cycle-by-Cycle Execution</h3>
+                    <pre class="diagram"><code>
+Cycle 0:                  Cycle 1:                  Cycle 2:
+┌────┬────┐              ┌────┬────┐              ┌────┬────┐
+│A00→│    │              │A01→│A00→│              │    │A01→│
+├────┼────┤              ├────┼────┤              ├────┼────┤
+│    │    │              │A10→│    │              │A11→│A10→│
+└────┴────┘              └────┴────┘              └────┴────┘
+
+PE[0][0] computes:       PE[0][0] computes:       PE[0][0] done!
+  A00 × W00 = 1×1 = 1      A01 × W00 = 1×2 = 2     psum = 1+2 = 3
+
+After 2 cycles: C[0][0] = 3 ✓
+                    </code></pre>
+                </section>
+
+                <section>
+                    <h3>The Skewing Pattern</h3>
+                    <p class="medium-text">Why do activations enter diagonally?</p>
+                    <pre class="diagram"><code>
+Without skewing (WRONG):       With skewing (CORRECT):
+┌────┬────┐                    ┌────┬────┐
+│A00 │A01 │ ← both arrive      │A00 │    │ ← A00 first
+├────┼────┤    at same time    ├────┼────┤
+│A10 │A11 │                    │    │    │ ← A10 delayed 1 cycle
+└────┴────┘                    └────┴────┘
+
+PE[0][1] needs A00 AFTER       Now A00 reaches PE[0][1]
+PE[0][0] processes it!         exactly when needed!
+                    </code></pre>
+                    <p class="fragment success medium-text">
+                        Skewing ensures partial sums and activations arrive together
+                    </p>
+                </section>
+            </section>
+
+            <!-- Part 4: Vector Unit -->
+            <section>
+                <section>
+                    <h2>Part 4: Vector Processing Unit</h2>
+                    <h4>64-Lane SIMD for Activation Functions</h4>
+                    <pre class="diagram"><code>
+Input[0]  Input[1]  Input[2]  ...  Input[63]
+    │         │         │              │
+    ▼         ▼         ▼              ▼
+┌───────┐ ┌───────┐ ┌───────┐     ┌───────┐
+│ Lane 0│ │ Lane 1│ │ Lane 2│ ... │Lane 63│
+│  ALU  │ │  ALU  │ │  ALU  │     │  ALU  │
+└───────┘ └───────┘ └───────┘     └───────┘
+    │         │         │              │
+    ▼         ▼         ▼              ▼
+Output[0] Output[1] Output[2] ... Output[63]
+
+One opcode → 64 operations in parallel!
+                    </code></pre>
+                </section>
+
+                <section>
+                    <h3>Supported Operations</h3>
+                    <table class="spec-table">
+                        <tr><th>Opcode</th><th>Operation</th><th>Cycles</th></tr>
+                        <tr><td>OP_ADD</td><td>dst = src0 + src1</td><td>1</td></tr>
+                        <tr><td>OP_MUL</td><td>dst = src0 × src1</td><td>1</td></tr>
+                        <tr><td>OP_RELU</td><td>dst = max(0, src0)</td><td>1</td></tr>
+                        <tr><td>OP_GELU</td><td>dst = GELU(src0)</td><td>3</td></tr>
+                        <tr><td>OP_MAX</td><td>dst = max(src0, src1)</td><td>1</td></tr>
+                        <tr><td>OP_SUM</td><td>Reduce: sum all 64</td><td>6</td></tr>
+                        <tr><td>OP_SOFTMAX</td><td>Multi-step softmax</td><td>~20</td></tr>
+                    </table>
+                </section>
+
+                <section>
+                    <h3>ReLU Implementation</h3>
+                    <pre><code class="verilog">// ReLU: if negative, output 0; else pass through
+generate
+    for (i = 0; i < 64; i = i + 1) begin : relu_lane
+        wire signed [15:0] val = src0[i*16 +: 16];
+        
+        // Check sign bit (MSB)
+        assign relu_out[i*16 +: 16] = 
+            val[15] ? 16'b0 : val;
+        //  ↑ negative? ↑ zero  ↑ pass through
+    end
+endgenerate</code></pre>
+                    <pre class="diagram"><code>
+Input:  [-3, 5, -1, 7, 0, -8, 2, 4, ...]
+         ↓   ↓   ↓  ↓  ↓   ↓  ↓  ↓
+ReLU:   [ 0, 5,  0, 7, 0,  0, 2, 4, ...]
+                    </code></pre>
+                </section>
+            </section>
+
+            <!-- Part 5: Memory System -->
+            <section>
+                <section>
+                    <h2>Part 5: Memory System</h2>
+                    <h4>Banked SRAM + DMA Engine</h4>
+                    <pre class="diagram"><code>
+┌─────────────────────────────────────────────────────────────┐
+│                    SRAM Subsystem                           │
+│  ┌────────┐ ┌────────┐ ┌────────┐     ┌────────┐          │
+│  │ Bank 0 │ │ Bank 1 │ │ Bank 2 │ ... │Bank 15 │          │
+│  │  4KB   │ │  4KB   │ │  4KB   │     │  4KB   │          │
+│  └────┬───┘ └────┬───┘ └────┬───┘     └────┬───┘          │
+│       └─────────┬┴─────────┬┴──────────────┘               │
+│                 │          │                                │
+│          ┌──────▼──────────▼──────┐                        │
+│          │     Crossbar Arbiter    │                        │
+│          └──────┬──────────┬──────┘                        │
+│                 │          │                                │
+│    ┌────────────┴──┐  ┌────┴────────────┐                  │
+│    │      DMA      │  │  Systolic Array │                  │
+│    └───────────────┘  └─────────────────┘                  │
+└─────────────────────────────────────────────────────────────┘
+                    </code></pre>
+                </section>
+
+                <section>
+                    <h3>Why Banks?</h3>
+                    <div class="two-column">
+                        <div>
+                            <h4>Without Banks</h4>
+                            <ul class="medium-text">
+                                <li>One access per cycle</li>
+                                <li>DMA blocks compute</li>
+                                <li>Low utilization</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <h4 class="success">With 16 Banks</h4>
+                            <ul class="medium-text">
+                                <li>16 parallel accesses</li>
+                                <li>DMA + Compute overlap</li>
+                                <li>Full bandwidth!</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <p class="fragment medium-text" style="margin-top: 30px;">
+                        <span class="highlight">Example:</span> DMA loads weights to banks 0-7 while
+                        systolic array reads activations from banks 8-15
+                    </p>
+                </section>
+
+                <section>
+                    <h3>DMA Engine: 2D Transfers</h3>
+                    <pre><code class="verilog">// 2D DMA for tensor slices
+module dma_engine (
+    input  wire [39:0] ext_addr,   // DDR address
+    input  wire [19:0] int_addr,   // SRAM address
+    input  wire [15:0] width,      // Bytes per row
+    input  wire [15:0] height,     // Number of rows
+    input  wire [15:0] stride      // Bytes between rows
+);
+
+// Transfer a 64×64 tile with 128-byte stride:
+//   ext_addr = 0x8000_0000
+//   width    = 64
+//   height   = 64
+//   stride   = 128  (skip padding)</code></pre>
+                </section>
+            </section>
+
+            <!-- Part 6: Control -->
+            <section>
+                <section>
+                    <h2>Part 6: Control Architecture</h2>
+                    <h4>LCP (Local) + GCP (Global)</h4>
+                    <pre class="diagram"><code>
+     ┌─────────────────────────────────────────────────────────┐
+     │                      GCP (Global)                       │
+     │   - Receives commands from host via AXI-Lite            │
+     │   - Dispatches work to TPCs                             │
+     │   - Handles synchronization barriers                    │
+     └────────────────────────┬────────────────────────────────┘
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        │                     │                     │
+        ▼                     ▼                     ▼
+   ┌─────────┐           ┌─────────┐          ┌─────────┐
+   │  LCP 0  │           │  LCP 1  │          │  LCP 2  │ ...
+   │ ┌─────┐ │           │ ┌─────┐ │          │ ┌─────┐ │
+   │ │Fetch│ │           │ │Fetch│ │          │ │Fetch│ │
+   │ │Decode│           │ │Decode│           │ │Decode│
+   │ │Execute│          │ │Execute│          │ │Execute│
+   │ └─────┘ │           │ └─────┘ │          │ └─────┘ │
+   └─────────┘           └─────────┘          └─────────┘
+                    </code></pre>
+                </section>
+
+                <section>
+                    <h3>Instruction Format</h3>
+                    <pre class="diagram"><code>
+128-bit instruction:
+┌────────┬────────┬────────┬────────┬────────┬────────┬────────┬────────┐
+│ Opcode │ Subop  │  Dst   │  Src0  │  Src1  │  Dim_M │  Dim_N │ Flags  │
+│ [7:0]  │ [7:0]  │ [15:0] │ [15:0] │ [15:0] │ [15:0] │ [15:0] │ [31:0] │
+└────────┴────────┴────────┴────────┴────────┴────────┴────────┴────────┘
+                    </code></pre>
+                    <table class="spec-table">
+                        <tr><th>Opcode</th><th>Mnemonic</th><th>Description</th></tr>
+                        <tr><td>0x01</td><td>TENSOR</td><td>Matrix operations</td></tr>
+                        <tr><td>0x02</td><td>VECTOR</td><td>VPU operations</td></tr>
+                        <tr><td>0x03</td><td>DMA</td><td>Data movement</td></tr>
+                        <tr><td>0x05</td><td>LOOP</td><td>Hardware loop</td></tr>
+                        <tr><td>0xFF</td><td>HALT</td><td>Stop execution</td></tr>
+                    </table>
+                </section>
+
+                <section>
+                    <h3>Example Kernel: Conv + ReLU</h3>
+                    <pre><code class="text"># ResNet-style convolution kernel
+LOOP_START 0, 64              # 64 output channels
+
+    # Load weight tile from DDR
+    DMA_LOAD_2D W_SRAM, W_DDR, 16, 16, 256
+    
+    # Load activation tile
+    DMA_LOAD_2D A_SRAM, A_DDR, 16, 16, 256
+    
+    # Matrix multiply: Out = Act × Weight
+    TENSOR_GEMM OUT_SRAM, A_SRAM, W_SRAM, 16, 16, 16
+    
+    # Apply ReLU activation
+    VECTOR_RELU OUT_SRAM, OUT_SRAM, 256
+    
+    # Store result back to DDR
+    DMA_STORE_2D OUT_DDR, OUT_SRAM, 16, 16, 256
+
+LOOP_END 0
+HALT</code></pre>
+                </section>
+            </section>
+
+            <!-- Part 7: Integration -->
+            <section>
+                <section>
+                    <h2>Part 7: System Integration</h2>
+                    <h4>AXI Interfaces + Memory Controller</h4>
+                    <pre class="diagram"><code>
+┌───────────────────────────────────────────────────────────────┐
+│                         HOST CPU                              │
+└───────────────────────────┬───────────────────────────────────┘
+                            │ PCIe / AXI
+                            ▼
+┌───────────────────────────────────────────────────────────────┐
+│                    TENSOR ACCELERATOR                         │
+│  ┌─────────────┐                          ┌─────────────┐    │
+│  │  AXI-Lite   │   Control registers      │   AXI4      │    │
+│  │   Slave     │◄─────────────────────────│   Master    │    │
+│  └─────────────┘                          └──────┬──────┘    │
+│                                                  │           │
+│  ┌───────────────────────────────────────────────┼──────┐    │
+│  │                    TPCs + NoC                 │      │    │
+│  └───────────────────────────────────────────────┼──────┘    │
+│                                                  │           │
+└──────────────────────────────────────────────────┼───────────┘
+                                                   │
+                            ┌──────────────────────▼───────────┐
+                            │        DDR4 / LPDDR5             │
+                            │         4-16 GB                  │
+                            └──────────────────────────────────┘
+                    </code></pre>
+                </section>
+
+                <section>
+                    <h3>Control Registers</h3>
+                    <table class="spec-table">
+                        <tr><th>Address</th><th>Register</th><th>Description</th></tr>
+                        <tr><td>0x000</td><td>CTRL</td><td>Start/Stop/Reset</td></tr>
+                        <tr><td>0x004</td><td>STATUS</td><td>Busy/Done/Error</td></tr>
+                        <tr><td>0x008</td><td>IRQ_EN</td><td>Interrupt enable</td></tr>
+                        <tr><td>0x00C</td><td>IRQ_STAT</td><td>Interrupt status</td></tr>
+                        <tr><td>0x100+n*0x10</td><td>TPC_n_CTRL</td><td>Per-TPC control</td></tr>
+                        <tr><td>0x104+n*0x10</td><td>TPC_n_PC</td><td>Program counter</td></tr>
+                    </table>
+                    <pre class="fragment"><code class="c">// Host driver code
+writel(0x1000, TPC0_PC);    // Set instruction address
+writel(0x1, TPC0_CTRL);     // Start TPC 0
+while (readl(STATUS) & 1);  // Wait for done
+</code></pre>
+                </section>
+
+                <section>
+                    <h3>Memory Controller Support</h3>
+                    <table class="spec-table">
+                        <tr><th>Platform</th><th>Memory</th><th>Bandwidth</th><th>Status</th></tr>
+                        <tr><td>UltraScale+ (ZCU104)</td><td>DDR4</td><td>19.2 GB/s</td><td class="success">✓ Ready</td></tr>
+                        <tr><td>Versal (VCK190)</td><td>LPDDR4</td><td>34 GB/s</td><td class="success">✓ Ready</td></tr>
+                        <tr><td>Versal VM2152</td><td>LPDDR5</td><td>51 GB/s</td><td class="warning">Planned</td></tr>
+                        <tr><td>Alveo U280</td><td>HBM2</td><td>460 GB/s</td><td class="warning">Planned</td></tr>
+                    </table>
+                </section>
+            </section>
+
+            <!-- FPGA Resources -->
+            <section>
+                <h2>FPGA Resource Utilization</h2>
+                <h4>Target: Zynq UltraScale+ ZU7EV (ZCU104)</h4>
+                <table class="spec-table">
+                    <tr><th>Resource</th><th>Used</th><th>Available</th><th>Utilization</th></tr>
+                    <tr><td>LUTs</td><td>~130K</td><td>230K</td><td>57%</td></tr>
+                    <tr><td>FFs</td><td>~90K</td><td>460K</td><td>20%</td></tr>
+                    <tr><td>DSP48</td><td>1024</td><td>1728</td><td class="warning">59%</td></tr>
+                    <tr><td>BRAM</td><td>8 Mb</td><td>11 Mb</td><td class="warning">73%</td></tr>
+                </table>
+                <p class="fragment medium-text" style="margin-top: 20px;">
+                    <span class="success">Fmax estimate:</span> 200-250 MHz on UltraScale+
+                </p>
+            </section>
+
+            <!-- Synthesis Flow -->
+            <section>
+                <h2>Synthesis Flow</h2>
+                <pre><code class="tcl"># Create Vivado project
+create_project tensor_accel ./proj -part xczu7ev-ffvc1156-2-e
+
+# Add sources
+add_files rtl/*.v
+
+# Run synthesis
+launch_runs synth_1 -jobs 8
+wait_on_run synth_1
+
+# Generate reports
+report_utilization -file utilization.rpt
+report_timing_summary -file timing.rpt</code></pre>
+                <p class="medium-text">
+                    Or simply: <code>vivado -mode batch -source scripts/synth.tcl</code>
+                </p>
+            </section>
+
+            <!-- Demo -->
+            <section>
+                <h2>Running the Demo</h2>
+                <pre><code class="bash"># Install simulator (macOS)
+brew install icarus-verilog surfer
+
+# Clone repository
+git clone https://github.com/YOUR_USERNAME/tensor-accelerator
+cd tensor-accelerator
+
+# Run tests
+./debug.sh
+# Select option 3: Run all tests
+
+# View waveforms
+surfer sim/waves/mac_pe.vcd
+
+# Synthesize (requires Vivado)
+vivado -mode batch -source scripts/synth.tcl</code></pre>
+            </section>
+
+            <!-- Summary -->
+            <section>
+                <h2>Summary</h2>
+                <div class="architecture-box">
+                    <h3>What We Built</h3>
+                    <ul class="medium-text">
+                        <li><strong>MAC PE:</strong> 8×8 signed multiply + 32-bit accumulate</li>
+                        <li><strong>Systolic Array:</strong> 16×16 grid, weight-stationary dataflow</li>
+                        <li><strong>Vector Unit:</strong> 64-lane SIMD for activations</li>
+                        <li><strong>DMA Engine:</strong> 2D strided transfers</li>
+                        <li><strong>Control:</strong> LCP microsequencer + GCP dispatcher</li>
+                        <li><strong>NoC:</strong> 2×2 mesh with XY routing</li>
+                    </ul>
+                </div>
+                <p class="fragment" style="margin-top: 30px; font-size: 1.2em;">
+                    <span class="success">409 GOPS</span> of INT8 compute in synthesizable Verilog!
+                </p>
+            </section>
+
+            <!-- Questions -->
+            <section>
+                <h1>Questions?</h1>
+                <p style="margin-top: 50px;">
+                    📦 <a href="https://github.com/YOUR_USERNAME/tensor-accelerator">GitHub Repository</a><br>
+                    📖 <a href="docs/VERILOG_TUTORIAL.md">Full Tutorial</a><br>
+                    🔧 <a href="docs/SYNTHESIS_READINESS.md">Synthesis Guide</a>
+                </p>
+                <p class="small-text" style="margin-top: 50px;">
+                    Built with ❤️ using Verilog, Icarus Verilog, and Surfer
+                </p>
+            </section>
+
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/plugin/highlight/highlight.min.js"></script>
+    <script>
+        Reveal.initialize({
+            hash: true,
+            slideNumber: true,
+            transition: 'slide',
+            plugins: [ RevealHighlight ]
+        });
+    </script>
+</body>
+</html>

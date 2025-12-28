@@ -1,0 +1,45 @@
+# Simulation outputs
+*.vcd
+*.vvp
+*.log
+*.out
+
+# Icarus Verilog
+*_tb
+
+# Vivado
+*.jou
+*.str
+*.log
+.Xil/
+vivado_proj/
+*.runs/
+*.cache/
+*.hw/
+*.ip_user_files/
+*.sim/
+
+# Compiled Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Build artifacts
+build/
+*.o
+*.a
+
+# Temporary files
+*.tmp
+*.bak

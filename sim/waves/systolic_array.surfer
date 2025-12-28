@@ -1,0 +1,37 @@
+# Surfer waveform viewer configuration for Systolic Array
+# Usage: surfer sim/waves/systolic_array.vcd --commands sim/waves/systolic_array.surfer
+
+# Clock and reset
+add_signal tb_systolic_array.clk
+add_signal tb_systolic_array.rst_n
+
+# Top-level control
+add_signal tb_systolic_array.start
+add_signal tb_systolic_array.dut.busy
+add_signal tb_systolic_array.dut.done
+
+# State machine
+add_signal tb_systolic_array.dut.state
+add_signal tb_systolic_array.dut.cycle_count
+
+# Weight loading
+add_signal tb_systolic_array.weight_load_en
+add_signal tb_systolic_array.weight_load_col
+add_signal tb_systolic_array.weight_load_data
+
+# Activation input
+add_signal tb_systolic_array.act_valid
+add_signal tb_systolic_array.act_data
+
+# Result output  
+add_signal tb_systolic_array.result_valid
+add_signal tb_systolic_array.result_data
+
+# Individual PEs (corner elements)
+add_signal tb_systolic_array.dut.pe_row[0].pe_col[0].pe_inst.weight_reg
+add_signal tb_systolic_array.dut.pe_row[0].pe_col[0].pe_inst.psum_out
+add_signal tb_systolic_array.dut.pe_row[0].pe_col[1].pe_inst.weight_reg
+add_signal tb_systolic_array.dut.pe_row[0].pe_col[1].pe_inst.psum_out
+
+# Zoom to fit
+zoom_fit

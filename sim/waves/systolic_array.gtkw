@@ -1,0 +1,61 @@
+[*]
+[*] GTKWave Analyzer v3.3.100
+[*]
+[dumpfile] "systolic_array.vcd"
+[savefile] "systolic_array.gtkw"
+[timestart] 0
+[size] 1400 800
+[pos] -1 -1
+*-16.000000 50 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[treeopen] tb_systolic_array.
+[treeopen] tb_systolic_array.dut.
+[sst_width] 300
+[signals_width] 250
+[sst_expanded] 1
+[sst_vpaned_height] 400
+@28
+tb_systolic_array.clk
+tb_systolic_array.rst_n
+@200
+-State Machine
+@28
+tb_systolic_array.start
+tb_systolic_array.busy
+tb_systolic_array.done
+@22
+tb_systolic_array.dut.state[2:0]
+tb_systolic_array.dut.cycle_count[15:0]
+@200
+-Weight Loading
+@28
+tb_systolic_array.weight_load_en
+@22
+tb_systolic_array.weight_load_col[3:0]
+tb_systolic_array.weight_load_data[127:0]
+@200
+-Activation Input
+@28
+tb_systolic_array.act_valid
+tb_systolic_array.act_ready
+@22
+tb_systolic_array.act_data[127:0]
+@200
+-Result Output
+@28
+tb_systolic_array.result_valid
+tb_systolic_array.result_ready
+@22
+tb_systolic_array.result_data[511:0]
+@200
+-PE[0][0] Internal
+@22
+tb_systolic_array.dut.pe_row[0].pe_col[0].pe_inst.weight_reg[7:0]
+tb_systolic_array.dut.pe_row[0].pe_col[0].pe_inst.act_in[7:0]
+tb_systolic_array.dut.pe_row[0].pe_col[0].pe_inst.psum_out[31:0]
+@200
+-PE[0][1] Internal
+@22
+tb_systolic_array.dut.pe_row[0].pe_col[1].pe_inst.weight_reg[7:0]
+tb_systolic_array.dut.pe_row[0].pe_col[1].pe_inst.psum_out[31:0]
+[pattern_trace] 1
+[pattern_trace] 0
