@@ -175,6 +175,7 @@ source scripts/synth.tcl
 | Document | Description |
 |----------|-------------|
 | [VERILOG_TUTORIAL.md](docs/VERILOG_TUTORIAL.md) | **Complete design walkthrough** - start here! |
+| [ISA_GUIDE.md](docs/ISA_GUIDE.md) | **Instruction Set Architecture** - assembly → binary |
 | [presentation.html](docs/presentation.html) | **Interactive slide deck** - open in browser |
 | [WAVEFORMS.md](docs/WAVEFORMS.md) | Waveform capture guide for Surfer |
 | [SYNTHESIS_READINESS.md](docs/SYNTHESIS_READINESS.md) | FPGA synthesis checklist |
@@ -226,15 +227,30 @@ psum_out = psum_in + (activation × weight)
 
 ```asm
 # ResNet Convolution Kernel
-LOOP_START 0, 64          # 64 output channels
-    DMA_LOAD_2D W_SRAM, W_DDR, 16, 16, 256
-    DMA_LOAD_2D A_SRAM, A_DDR, 16, 16, 256
-    TENSOR_GEMM OUT_SRAM, A_SRAM, W_SRAM, 16, 16, 16
-    VECTOR_RELU OUT_SRAM, OUT_SRAM, 256
-    DMA_STORE_2D OUT_DDR, OUT_SRAM, 16, 16, 256
-LOOP_END 0
+LOOP        64                # 64 output channels
+    DMA.LOAD_2D W_SRAM, W_DDR, 16, 16, 256
+    DMA.LOAD_2D A_SRAM, A_DDR, 16, 16, 256
+    TENSOR.GEMM OUT_SRAM, A_SRAM, W_SRAM, 16, 16, 16
+    VEC.RELU    OUT_SRAM, OUT_SRAM
+    DMA.STORE_2D OUT_DDR, OUT_SRAM, 16, 16, 256
+ENDLOOP
 HALT
 ```
+
+### Compile to Binary
+
+```bash
+# Compile assembly to hex (for Verilog $readmemh)
+python3 sw/assembler/assembler.py sw/examples/resnet_conv.asm -o program.hex
+
+# Output: 128-bit instructions
+# 05000000000000000000004000000000  // LOOP 64
+# 03010400000000100010001001000000  // DMA.LOAD_2D
+# ...
+# ff000000000000000000000000000000  // HALT
+```
+
+See [ISA_GUIDE.md](docs/ISA_GUIDE.md) for complete instruction encoding details.
 
 ## 🤝 Contributing
 
