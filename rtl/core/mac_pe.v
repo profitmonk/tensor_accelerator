@@ -66,7 +66,6 @@ module mac_pe #(
             weight_reg <= {DATA_WIDTH{1'b0}};
             act_reg    <= {DATA_WIDTH{1'b0}};
             act_out    <= {DATA_WIDTH{1'b0}};
-            psum_reg   <= {ACC_WIDTH{1'b0}};
             psum_out   <= {ACC_WIDTH{1'b0}};
         end else begin
             // Weight loading (independent of enable)
@@ -76,19 +75,19 @@ module mac_pe #(
             
             // Main datapath (when enabled)
             if (enable) begin
-                // Stage 1: Register inputs
+                // Register activation for timing
                 act_reg  <= act_in;
-                psum_reg <= psum_in;
                 
-                // Stage 2: Compute and output
-                // Pass activation to right neighbor
+                // Pass activation to right neighbor (1 cycle delay)
                 act_out <= act_reg;
                 
-                // Accumulate: psum_out = psum_in + (act * weight)
+                // Compute: psum_out = psum_in + (act * weight)
+                // Use psum_in directly (not registered) so accumulation
+                // happens in the same cycle the partial sum arrives
                 if (clear_acc) begin
                     psum_out <= product_ext;
                 end else begin
-                    psum_out <= psum_reg + product_ext;
+                    psum_out <= psum_in + product_ext;
                 end
             end
         end

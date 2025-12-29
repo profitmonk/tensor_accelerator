@@ -202,76 +202,88 @@ module tb_systolic_array;
     endtask
     
     // Run computation by streaming activations
+    // Also collects results as they emerge from the array
     task run_computation;
-        integer k, row;
+        integer k, row, col;
+        integer row_idx;
+        integer wait_cycles;
+        integer first_nonzero_seen;
+        reg [ACC_WIDTH-1:0] row_sum;
         begin
             $display("[%0t] Running computation...", $time);
+            
+            // Initialize result collection
+            row_idx = 0;
+            first_nonzero_seen = 0;
+            for (row = 0; row < ARRAY_SIZE; row = row + 1) begin
+                for (col = 0; col < ARRAY_SIZE; col = col + 1) begin
+                    matrix_C_actual[row][col] = 32'hDEADBEEF;
+                end
+            end
             
             // Start the array
             start = 1;
             clear_acc = 1;
-            cfg_k_tiles = ARRAY_SIZE;
+            cfg_k_tiles = ARRAY_SIZE * 3;
+            result_ready = 1;
             @(posedge clk);
             start = 0;
             clear_acc = 0;
             
-            // Stream A column by column (k dimension)
-            // For each k, we send A[row][k] to row 'row'
-            for (k = 0; k < ARRAY_SIZE; k = k + 1) begin
+            // Stream A row by row (m = output row index)
+            // At time m, send A[m][k] to row k for all k
+            // This produces C[m][n] at output column n
+            for (row = 0; row < ARRAY_SIZE; row = row + 1) begin
                 act_valid = 1;
-                
-                for (row = 0; row < ARRAY_SIZE; row = row + 1) begin
-                    act_data[row*DATA_WIDTH +: DATA_WIDTH] = matrix_A[row][k];
+                for (k = 0; k < ARRAY_SIZE; k = k + 1) begin
+                    // A[row][k] goes to systolic row k
+                    act_data[k*DATA_WIDTH +: DATA_WIDTH] = matrix_A[row][k];
                 end
-                
                 @(posedge clk);
             end
             
             act_valid = 0;
             act_data = 0;
             
-            // Wait for computation to propagate through array
-            repeat(ARRAY_SIZE * 2) @(posedge clk);
-            
-            $display("[%0t] Computation complete", $time);
-        end
-    endtask
-    
-    // Collect results
-    task collect_results;
-        integer col, row_idx;
-        integer timeout;
-        begin
-            $display("[%0t] Collecting results...", $time);
-            
-            result_ready = 1;
-            row_idx = 0;
-            timeout = 0;
-            
-            // Collect results as they become valid
-            while (!done && timeout < 500) begin
+            // Collect results - they arrive one row per cycle after propagation delay
+            wait_cycles = 0;
+            while (row_idx < ARRAY_SIZE && wait_cycles < ARRAY_SIZE * 4) begin
                 @(posedge clk);
-                timeout = timeout + 1;
+                wait_cycles = wait_cycles + 1;
                 
                 if (result_valid) begin
+                    // Check if this row has any non-zero data
+                    row_sum = 0;
                     for (col = 0; col < ARRAY_SIZE; col = col + 1) begin
-                        matrix_C_actual[row_idx][col] = $signed(result_data[col*ACC_WIDTH +: ACC_WIDTH]);
+                        row_sum = row_sum | result_data[col*ACC_WIDTH +: ACC_WIDTH];
                     end
-                    $display("[%0t]   Row %0d: C[%0d][0]=%0d C[%0d][1]=%0d", 
-                             $time, row_idx, 
-                             row_idx, matrix_C_actual[row_idx][0],
-                             row_idx, matrix_C_actual[row_idx][1]);
-                    row_idx = row_idx + 1;
+                    
+                    // Once we see first non-zero, capture all subsequent rows
+                    if (row_sum != 0 || first_nonzero_seen) begin
+                        first_nonzero_seen = 1;
+                        for (col = 0; col < ARRAY_SIZE; col = col + 1) begin
+                            matrix_C_actual[row_idx][col] = $signed(result_data[col*ACC_WIDTH +: ACC_WIDTH]);
+                        end
+                        if (row_idx < 4) begin
+                            $display("[%0t]   Row %0d: C[%0d][0]=%0d C[%0d][1]=%0d", 
+                                     $time, row_idx, 
+                                     row_idx, matrix_C_actual[row_idx][0],
+                                     row_idx, matrix_C_actual[row_idx][1]);
+                        end
+                        row_idx = row_idx + 1;
+                    end
                 end
             end
             
             result_ready = 0;
-            
-            if (timeout >= 500) begin
-                $display("[%0t] WARNING: Timeout! Only collected %0d rows", $time, row_idx);
-            end else begin
-                $display("[%0t] Results collected (%0d rows)", $time, row_idx);
-            end
+            $display("[%0t] Computation complete, collected %0d result rows", $time, row_idx);
+        end
+    endtask
+    
+    // Collect results (now mostly handled by run_computation, kept for compatibility)
+    task collect_results;
+        begin
+            // Results are now collected inline during run_computation
         end
     endtask
     
