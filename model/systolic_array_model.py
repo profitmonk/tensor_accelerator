@@ -434,11 +434,10 @@ class SystolicArray:
         
         elif state == self.S_DRAIN:
             next_cycle_count = cycle_count + 1
-            # Need enough cycles for all results to drain
-            # Total drain cycles = array_size (for remaining psum propagation)
-            #                    + 2*(array_size-1) (for deskew to complete)
-            drain_cycles_needed = 3 * self.array_size - 2
-            if cycle_count >= drain_cycles_needed - 1:
+            # Drain delay = 2 * array_size (matches RTL)
+            # Wait for de-skewing to complete, then output ARRAY_SIZE rows
+            drain_delay = 2 * self.array_size
+            if cycle_count >= drain_delay + self.array_size:
                 next_state = self.S_DONE
                 next_cycle_count = 0
         
@@ -451,12 +450,11 @@ class SystolicArray:
         self.cycle_count.set(next_cycle_count)
         
         # ===== Output Signals =====
-        # result_valid: asserted when valid results are at output
-        # This happens after propagation delay through array + deskew
-        propagation_delay = 3 * self.array_size - 3
-        if state == self.S_COMPUTE and cycle_count >= propagation_delay:
-            self.result_valid.set(1)
-        elif state == self.S_DRAIN:
+        # result_valid: asserted only during DRAIN when valid results at output
+        # Drain delay = 2 * ARRAY_SIZE cycles for de-skewing to complete
+        # Then ARRAY_SIZE cycles of valid data
+        drain_delay = 2 * self.array_size
+        if state == self.S_DRAIN and cycle_count >= drain_delay and cycle_count < drain_delay + self.array_size:
             self.result_valid.set(1)
         else:
             self.result_valid.set(0)
@@ -572,8 +570,9 @@ class SystolicArray:
                     print(f"  PE[{row}][{col}].weight = {self.pes[row][col].weight_reg.get()}")
             print()
         
-        # Configure k_tiles (number of activation cycles)
-        k_tiles = M + 3 * self.array_size  # M inputs + propagation delay
+        # Configure k_tiles = max(K, array_size) to ensure pipeline fills properly
+        # For small matrices, we need at least array_size cycles to let data propagate
+        k_tiles = max(K, self.array_size)
         
         # Start computation
         t = self.clock_cycle(start=True, clear_acc=True, cfg_k_tiles=k_tiles)
@@ -591,11 +590,8 @@ class SystolicArray:
             t = self.clock_cycle(act_valid=True, act_data=act_data)
             if verbose:
                 self.print_trace_entry(t)
-            
-            if t['result_valid'] and any(v != 0 for v in t['result_data']):
-                collected_results.append(t['result_data'][:N])
         
-        # Continue until done
+        # Continue until done, collecting results when valid
         max_cycles = 100
         cycles = 0
         while self.state.get() != self.S_DONE and cycles < max_cycles:
@@ -603,10 +599,9 @@ class SystolicArray:
             if verbose:
                 self.print_trace_entry(t)
             
-            if t['result_valid']:
-                if any(v != 0 for v in t['result_data']) or len(collected_results) > 0:
-                    if len(collected_results) < M:
-                        collected_results.append(t['result_data'][:N])
+            # Collect results when valid (trust result_valid signal)
+            if t['result_valid'] and len(collected_results) < M:
+                collected_results.append(t['result_data'][:N])
             
             cycles += 1
         

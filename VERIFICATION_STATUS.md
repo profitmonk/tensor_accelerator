@@ -395,3 +395,251 @@ tb/
 
 **Document maintained by:** Claude AI  
 **Last updated:** December 29, 2024
+# Tensor Accelerator - Verification Status
+
+**Date:** December 29, 2024  
+**Version:** v0.1.1  
+**Status:** All unit tests passing
+
+---
+
+## Test Summary
+
+| Module | Tests | Status |
+|--------|-------|--------|
+| MAC PE | 7 | ✅ PASS |
+| Systolic Array | 2 | ✅ PASS |
+| Vector Unit | 4 | ✅ PASS |
+| DMA Engine | 4 | ✅ PASS |
+| Local Command Processor | 4 | ✅ PASS |
+| Global Command Processor | 7 | ✅ PASS |
+| SRAM Subsystem | 5 | ✅ PASS |
+| NoC Router | 8 | ✅ PASS |
+| **Total** | **41** | **✅ ALL PASS** |
+
+---
+
+## Test Coverage
+
+### Core
+- ✅ mac_pe.v
+- ✅ systolic_array.v
+- ✅ vector_unit.v
+- ✅ dma_engine.v
+
+### Control
+- ✅ local_cmd_processor.v
+- ✅ global_cmd_processor.v
+
+### Memory
+- ✅ sram_subsystem.v
+
+### NoC
+- ✅ noc_router.v (X-Y routing, arbitration, backpressure)
+
+---
+
+## Known RTL Issues
+
+| Module | Issue | Severity |
+|--------|-------|----------|
+| DMA Engine | STORE timing bug | Medium |
+| DMA Engine | Multi-column burst bug | Medium |
+| Vector Unit | vd/subop field overlap | Low |
+
+---
+
+## Remaining Work
+
+| Module | Priority | Notes |
+|--------|----------|-------|
+| tensor_processing_cluster.v | High | TPC integration |
+| tensor_accelerator_top.v | High | Full chip |
+| memory_controller_wrapper.v | Medium | External memory |
+
+---
+
+## Test Execution
+
+```bash
+cd tensor_accelerator
+./run_tests.sh
+```
+
+---
+
+## Git Checkpoint
+
+```bash
+git add .
+git commit -m "v0.1.1: NoC router tests passing (41 total tests)"
+git push origin main
+```
+# Tensor Accelerator - Verification Status
+
+**Date:** December 29, 2024  
+**Version:** v0.2.0  
+**Status:** All tests passing (47 tests, 9 modules)
+
+---
+
+## Test Summary
+
+| Module | Tests | Type | Status |
+|--------|-------|------|--------|
+| MAC PE | 7 | Unit | ✅ PASS |
+| Systolic Array | 2 | Unit | ✅ PASS |
+| Vector Unit | 4 | Unit | ✅ PASS |
+| DMA Engine | 4 | Unit | ✅ PASS |
+| Local Command Processor | 4 | Unit | ✅ PASS |
+| Global Command Processor | 7 | Unit | ✅ PASS |
+| SRAM Subsystem | 5 | Unit | ✅ PASS |
+| NoC Router | 8 | Unit | ✅ PASS |
+| TPC Integration | 6 | Integration | ✅ PASS |
+| **Total** | **47** | | **✅ ALL PASS** |
+
+---
+
+## Test Coverage
+
+### Unit Tests (8 modules)
+- ✅ Core: mac_pe, systolic_array, vector_unit, dma_engine
+- ✅ Control: local_cmd_processor, global_cmd_processor  
+- ✅ Memory: sram_subsystem
+- ✅ NoC: noc_router
+
+### Integration Tests (1 module)
+- ✅ TPC: Instruction load, NOP/HALT execution, busy/done handshake
+
+---
+
+## Known RTL Issues
+
+| Module | Issue | Severity |
+|--------|-------|----------|
+| DMA Engine | STORE timing bug | Medium |
+| DMA Engine | Multi-column burst bug | Medium |
+| Vector Unit | vd/subop field overlap | Low |
+
+---
+
+## Remaining Work
+
+| Module | Priority |
+|--------|----------|
+| tensor_accelerator_top.v | Medium |
+| End-to-end GEMM test | High |
+
+---
+
+## Test Execution
+
+```bash
+cd tensor_accelerator
+./run_tests.sh
+```
+
+---
+
+## Git Checkpoint
+
+```bash
+git add .
+git commit -m "v0.2.0: TPC integration tests passing (47 tests)"
+git push origin main
+```
+# Tensor Accelerator - Verification Status
+
+**Date:** December 29, 2024  
+**Version:** v0.3.0  
+**Status:** All tests passing (54 tests, 10 modules)
+
+---
+
+## Test Summary
+
+| Module | Tests | Type | Status |
+|--------|-------|------|--------|
+| MAC PE | 7 | Unit | ✅ PASS |
+| Systolic Array | 2 | Unit | ✅ PASS |
+| Vector Unit | 4 | Unit | ✅ PASS |
+| DMA Engine | 4 | Unit | ✅ PASS |
+| Local Command Processor | 4 | Unit | ✅ PASS |
+| Global Command Processor | 7 | Unit | ✅ PASS |
+| SRAM Subsystem | 5 | Unit | ✅ PASS |
+| NoC Router | 8 | Unit | ✅ PASS |
+| TPC Integration | 6 | Integration | ✅ PASS |
+| Full Chip (Top) | 7 | Integration | ✅ PASS |
+| **Total** | **54** | | **✅ ALL PASS** |
+
+---
+
+## Test Categories
+
+### Unit Tests (8 modules, 41 tests)
+Tests individual modules in isolation with mocked interfaces.
+
+### Integration Tests (2 modules, 13 tests)
+- **TPC Integration**: LCP + MXU + VPU + DMA + SRAM working together
+- **Full Chip**: 4 TPCs + GCP + AXI interconnect
+
+---
+
+## Full Chip Test Coverage
+
+| Feature | Status |
+|---------|--------|
+| Reset & Idle | ✅ |
+| GCP Register Access | ✅ |
+| Single TPC Execution | ✅ |
+| Parallel 4-TPC Execution | ✅ |
+| IRQ Generation | ✅ |
+| Error Detection | ✅ |
+
+---
+
+## Known RTL Issues
+
+| Module | Issue | Severity |
+|--------|-------|----------|
+| DMA Engine | STORE timing bug | Medium |
+| DMA Engine | Multi-column burst | Medium |
+| Vector Unit | vd/subop overlap | Low |
+
+---
+
+## Test Execution
+
+```bash
+cd tensor_accelerator
+./run_tests.sh
+```
+
+---
+
+## Architecture
+
+```
+tensor_accelerator_top
+├── global_cmd_processor (GCP)
+│   └── AXI-Lite control interface
+├── tpc_gen[0..3] (4x TPC)
+│   ├── local_cmd_processor (LCP)
+│   ├── systolic_array (16x16 MXU)
+│   │   └── mac_pe[256]
+│   ├── vector_unit (VPU)
+│   ├── dma_engine
+│   └── sram_subsystem (16 banks)
+└── AXI interconnect (round-robin)
+```
+
+---
+
+## Git Checkpoint
+
+```bash
+git add .
+git commit -m "v0.3.0: Full chip integration passing (54 tests)"
+git tag v0.3.0-full-chip
+git push origin main --tags
+```

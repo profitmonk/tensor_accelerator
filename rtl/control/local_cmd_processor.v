@@ -306,8 +306,11 @@ module local_cmd_processor #(
                         end
                         
                         OP_HALT: begin
-                            done_reg <= 1'b1;
-                            state <= S_HALTED;
+                            // Wait for all pending operations
+                            if (all_done) begin
+                                done_reg <= 1'b1;
+                                state <= S_HALTED;
+                            end
                         end
                         
                         default: begin

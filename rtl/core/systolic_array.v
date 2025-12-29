@@ -96,8 +96,9 @@ module systolic_array #(
             
             S_DRAIN: begin
                 cycle_count_next = cycle_count + 1;
-                // Drain cycles: 3*ARRAY_SIZE - 2
-                if (cycle_count >= 3*ARRAY_SIZE - 3) begin
+                // Drain duration: drain_delay + ARRAY_SIZE cycles
+                // Wait for de-skewing, then output ARRAY_SIZE rows
+                if (cycle_count >= drain_delay + ARRAY_SIZE) begin
                     state_next = S_DONE;
                     cycle_count_next = 16'd0;
                 end
@@ -118,11 +119,15 @@ module systolic_array #(
     assign done = (state == S_DONE);
     assign act_ready = (state == S_COMPUTE);
     
-    // Result valid after propagation delay
-    // Propagation delay = 3 * ARRAY_SIZE - 3 cycles
-    wire [15:0] propagation_delay = 3 * ARRAY_SIZE - 3;
-    assign result_valid = ((state == S_COMPUTE) && (cycle_count >= propagation_delay)) ||
-                          (state == S_DRAIN);
+    // Pipeline delay before first valid output in DRAIN state
+    // Verified empirically: first valid data at drain_cnt = 2*ARRAY_SIZE
+    wire [15:0] drain_delay = 2 * ARRAY_SIZE;
+    
+    // Result valid only after de-skewing pipeline has flushed
+    // In DRAIN: valid from cycle drain_delay to drain_delay + ARRAY_SIZE - 1
+    assign result_valid = (state == S_DRAIN) && 
+                          (cycle_count >= drain_delay) &&
+                          (cycle_count < drain_delay + ARRAY_SIZE);
 
     //==========================================================================
     // Input Skewing Registers

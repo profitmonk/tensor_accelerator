@@ -258,6 +258,31 @@ module tensor_processing_cluster #(
     reg mxu_ready_reg;
     reg mxu_done_reg;
     
+    // Pipelined weight control signals (1 cycle delay to match SRAM latency)
+    reg weight_load_en_d;
+    reg [$clog2(ARRAY_SIZE)-1:0] weight_load_col_d;
+    reg act_valid_d, act_valid_d2;  // Double-delayed for state machine alignment
+    reg mxu_start_array_d;
+    reg [ARRAY_SIZE*DATA_WIDTH-1:0] act_data_d;  // Delayed activation data
+    
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            weight_load_en_d <= 1'b0;
+            weight_load_col_d <= 0;
+            act_valid_d <= 1'b0;
+            act_valid_d2 <= 1'b0;
+            mxu_start_array_d <= 1'b0;
+            act_data_d <= 0;
+        end else begin
+            weight_load_en_d <= (mxu_state == MXU_LOAD_W);
+            weight_load_col_d <= mxu_col_cnt[$clog2(ARRAY_SIZE)-1:0];
+            act_valid_d <= (mxu_state == MXU_COMPUTE);
+            act_valid_d2 <= act_valid_d;  // Second delay stage
+            mxu_start_array_d <= mxu_start_array;
+            act_data_d <= mxu_a_rdata[ARRAY_SIZE*DATA_WIDTH-1:0];  // Delay data to match valid
+        end
+    end
+    
     // Systolic array instance
     wire systolic_busy, systolic_done;
     wire [ARRAY_SIZE*DATA_WIDTH-1:0] systolic_act_data;
@@ -271,16 +296,16 @@ module tensor_processing_cluster #(
     ) mxu_array (
         .clk              (clk),
         .rst_n            (rst_n),
-        .start            (mxu_start_array),
+        .start            (mxu_start_array_d),
         .clear_acc        (1'b1),
         .busy             (systolic_busy),
         .done             (systolic_done),
         .cfg_k_tiles      (mxu_cfg_k),
-        .weight_load_en   (mxu_state == MXU_LOAD_W),
-        .weight_load_col  (mxu_col_cnt[$clog2(ARRAY_SIZE)-1:0]),
+        .weight_load_en   (weight_load_en_d),
+        .weight_load_col  (weight_load_col_d),
         .weight_load_data (mxu_w_rdata[ARRAY_SIZE*DATA_WIDTH-1:0]),
-        .act_valid        (mxu_state == MXU_COMPUTE),
-        .act_data         (mxu_a_rdata[ARRAY_SIZE*DATA_WIDTH-1:0]),
+        .act_valid        (act_valid_d2),
+        .act_data         (act_data_d),
         .act_ready        (),
         .result_valid     (systolic_result_valid),
         .result_data      (systolic_result),
@@ -288,10 +313,13 @@ module tensor_processing_cluster #(
     );
     
     // MXU control state machine
+    reg [15:0] mxu_out_cnt;  // Separate counter for output rows
+    
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             mxu_state <= MXU_IDLE;
             mxu_cycle_cnt <= 16'd0;
+            mxu_out_cnt <= 16'd0;
             mxu_col_cnt <= 5'd0;
             mxu_start_array <= 1'b0;
             mxu_ready_reg <= 1'b1;
@@ -300,9 +328,18 @@ module tensor_processing_cluster #(
             mxu_start_array <= 1'b0;
             mxu_done_reg <= 1'b0;
             
+            // Output counter - increment when writing results
+            // Output counter - increment when writing results
+            // Results can be valid during COMPUTE (late pipeline) or DRAIN
+            if (systolic_result_valid && mxu_o_ready && 
+                (mxu_state == MXU_COMPUTE || mxu_state == MXU_DRAIN)) begin
+                mxu_out_cnt <= mxu_out_cnt + 1;
+            end
+            
             case (mxu_state)
                 MXU_IDLE: begin
                     mxu_ready_reg <= 1'b1;
+                    mxu_out_cnt <= 16'd0;
                     if (lcp_mxu_valid) begin
                         mxu_ready_reg <= 1'b0;
                         mxu_col_cnt <= 5'd0;
@@ -328,16 +365,13 @@ module tensor_processing_cluster #(
                     end
                     if (systolic_done) begin
                         mxu_state <= MXU_DRAIN;
-                        mxu_cycle_cnt <= 16'd0;
                     end
                 end
                 
                 MXU_DRAIN: begin
-                    if (systolic_result_valid && mxu_o_ready) begin
-                        mxu_cycle_cnt <= mxu_cycle_cnt + 1;
-                        if (mxu_cycle_cnt >= ARRAY_SIZE - 1) begin
-                            mxu_state <= MXU_DONE;
-                        end
+                    // Wait for all outputs to be written
+                    if (mxu_out_cnt >= ARRAY_SIZE) begin
+                        mxu_state <= MXU_DONE;
                     end
                 end
                 
@@ -354,9 +388,10 @@ module tensor_processing_cluster #(
     assign mxu_w_re = (mxu_state == MXU_LOAD_W);
     assign mxu_a_addr = mxu_src0_addr + mxu_cycle_cnt;
     assign mxu_a_re = (mxu_state == MXU_COMPUTE);
-    assign mxu_o_addr = mxu_dst_addr + mxu_cycle_cnt;
+    assign mxu_o_addr = mxu_dst_addr + mxu_out_cnt;
     assign mxu_o_wdata = systolic_result[SRAM_WIDTH-1:0];
-    assign mxu_o_we = systolic_result_valid && (mxu_state == MXU_DRAIN);
+    assign mxu_o_we = systolic_result_valid && 
+                      (mxu_state == MXU_COMPUTE || mxu_state == MXU_DRAIN);
     assign mxu_lcp_ready = mxu_ready_reg;
     assign mxu_lcp_done = mxu_done_reg;
     

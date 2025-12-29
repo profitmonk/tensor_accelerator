@@ -207,14 +207,11 @@ module tb_systolic_array;
         integer k, row, col;
         integer row_idx;
         integer wait_cycles;
-        integer first_nonzero_seen;
-        reg [ACC_WIDTH-1:0] row_sum;
         begin
             $display("[%0t] Running computation...", $time);
             
             // Initialize result collection
             row_idx = 0;
-            first_nonzero_seen = 0;
             for (row = 0; row < ARRAY_SIZE; row = row + 1) begin
                 for (col = 0; col < ARRAY_SIZE; col = col + 1) begin
                     matrix_C_actual[row][col] = 32'hDEADBEEF;
@@ -224,7 +221,7 @@ module tb_systolic_array;
             // Start the array
             start = 1;
             clear_acc = 1;
-            cfg_k_tiles = ARRAY_SIZE * 3;
+            cfg_k_tiles = ARRAY_SIZE;  // K = ARRAY_SIZE for square multiply
             result_ready = 1;
             @(posedge clk);
             start = 0;
@@ -245,33 +242,24 @@ module tb_systolic_array;
             act_valid = 0;
             act_data = 0;
             
-            // Collect results - they arrive one row per cycle after propagation delay
+            // Collect results - result_valid is now properly timed
             wait_cycles = 0;
-            while (row_idx < ARRAY_SIZE && wait_cycles < ARRAY_SIZE * 4) begin
+            while (row_idx < ARRAY_SIZE && wait_cycles < ARRAY_SIZE * 6) begin
                 @(posedge clk);
                 wait_cycles = wait_cycles + 1;
                 
                 if (result_valid) begin
-                    // Check if this row has any non-zero data
-                    row_sum = 0;
+                    // Capture this row's results
                     for (col = 0; col < ARRAY_SIZE; col = col + 1) begin
-                        row_sum = row_sum | result_data[col*ACC_WIDTH +: ACC_WIDTH];
+                        matrix_C_actual[row_idx][col] = $signed(result_data[col*ACC_WIDTH +: ACC_WIDTH]);
                     end
-                    
-                    // Once we see first non-zero, capture all subsequent rows
-                    if (row_sum != 0 || first_nonzero_seen) begin
-                        first_nonzero_seen = 1;
-                        for (col = 0; col < ARRAY_SIZE; col = col + 1) begin
-                            matrix_C_actual[row_idx][col] = $signed(result_data[col*ACC_WIDTH +: ACC_WIDTH]);
-                        end
-                        if (row_idx < 4) begin
-                            $display("[%0t]   Row %0d: C[%0d][0]=%0d C[%0d][1]=%0d", 
-                                     $time, row_idx, 
-                                     row_idx, matrix_C_actual[row_idx][0],
-                                     row_idx, matrix_C_actual[row_idx][1]);
-                        end
-                        row_idx = row_idx + 1;
+                    if (row_idx < 4) begin
+                        $display("[%0t]   Row %0d: C[%0d][0]=%0d C[%0d][1]=%0d", 
+                                 $time, row_idx, 
+                                 row_idx, matrix_C_actual[row_idx][0],
+                                 row_idx, matrix_C_actual[row_idx][1]);
                     end
+                    row_idx = row_idx + 1;
                 end
             end
             

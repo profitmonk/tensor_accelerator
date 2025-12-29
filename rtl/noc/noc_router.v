@@ -105,6 +105,7 @@ module noc_router #(
     localparam PORT_LOCAL = 3'd4;
     localparam NUM_PORTS  = 5;
     
+    integer out_p, in_p, i;
     //--------------------------------------------------------------------------
     // Flit structure: {dest_y, dest_x, data}
     //--------------------------------------------------------------------------
@@ -212,10 +213,10 @@ module noc_router #(
     endgenerate
     
     // Round-robin priority per output port
-    reg [2:0] priority [0:NUM_PORTS-1];
+    reg [2:0] rr_prio [0:NUM_PORTS-1];
     
     // Arbitration logic (simplified round-robin)
-    integer out_p, in_p;
+    
     always @(*) begin
         // Initialize grants to zero
         for (out_p = 0; out_p < NUM_PORTS; out_p = out_p + 1) begin
@@ -227,9 +228,9 @@ module noc_router #(
             if (out_ready[out_p]) begin
                 for (in_p = 0; in_p < NUM_PORTS; in_p = in_p + 1) begin
                     // Check each input in priority order
-                    if (req[(priority[out_p] + in_p) % NUM_PORTS][out_p] && 
+                    if (req[(rr_prio[out_p] + in_p) % NUM_PORTS][out_p] && 
                         grant[out_p] == {NUM_PORTS{1'b0}}) begin
-                        grant[out_p][(priority[out_p] + in_p) % NUM_PORTS] = 1'b1;
+                        grant[out_p][(rr_prio[out_p] + in_p) % NUM_PORTS] = 1'b1;
                     end
                 end
             end
@@ -239,8 +240,8 @@ module noc_router #(
     // Update priority after grant
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            for (integer i = 0; i < NUM_PORTS; i = i + 1) begin
-                priority[i] <= 3'd0;
+            for (i = 0; i < NUM_PORTS; i = i + 1) begin
+                rr_prio[i] <= 3'd0;
             end
         end else begin
             for (out_p = 0; out_p < NUM_PORTS; out_p = out_p + 1) begin
@@ -248,7 +249,7 @@ module noc_router #(
                     // Advance priority to next input
                     for (in_p = 0; in_p < NUM_PORTS; in_p = in_p + 1) begin
                         if (grant[out_p][in_p]) begin
-                            priority[out_p] <= (in_p + 1) % NUM_PORTS;
+                            rr_prio[out_p] <= (in_p + 1) % NUM_PORTS;
                         end
                     end
                 end
