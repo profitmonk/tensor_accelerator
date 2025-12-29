@@ -5,7 +5,7 @@ FAIL=0
 
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║        Tensor Accelerator - Test Suite                     ║"
+echo "║        Tensor Accelerator - Full Test Suite                ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 
 mkdir -p sim
@@ -86,6 +86,17 @@ run_test "E2E: Multi-GEMM Sequential" \
 run_test "E2E: Conv2D (im2col)" \
     "iverilog -g2012 -DSIM -o sim/tb_e2e_conv2d $TPC_FILES tb/tb_e2e_conv2d.v" \
     "tb_e2e_conv2d" "CONV2D TEST PASSED"
+
+echo ""
+echo "═══════════════ STRESS TESTS ═══════════════"
+
+run_test "Stress: Signed/Overflow/Sparse/FixedPt" \
+    "iverilog -g2012 -DSIM -o sim/tb_stress_test $TPC_FILES tb/tb_stress_test.v" \
+    "tb_stress_test" "ALL STRESS TESTS PASSED"
+
+run_test "Stress: Random Matrix (numpy-verified)" \
+    "iverilog -g2012 -DSIM -o sim/tb_random_simple $TPC_FILES tb/tb_random_simple.v" \
+    "tb_random_simple" "RANDOM MATRIX TEST PASSED"
 
 echo ""
 echo "═══════════════ PYTHON MODEL TESTS ═══════════════"
