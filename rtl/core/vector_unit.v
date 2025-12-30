@@ -43,14 +43,33 @@ module vector_unit #(
 );
 
     //--------------------------------------------------------------------------
-    // Command Decode
+    // Command Decode - use registered command for proper timing
     //--------------------------------------------------------------------------
     
+    // Registered command fields (valid after S_IDLE)
+    reg [7:0]  subop_reg;
+    reg [4:0]  vd_reg;
+    reg [4:0]  vs1_reg;
+    reg [4:0]  vs2_reg;
+    reg [15:0] imm_reg;
+    reg [SRAM_ADDR_W-1:0] mem_addr_reg;
+    reg [15:0] count_reg;
+    
+    // Immediate decode from input (used only in S_IDLE)
+    // Field layout (128-bit command):
+    //   [127:120] opcode (8 bits)
+    //   [119:112] subop (8 bits)
+    //   [111:107] vd - destination register (5 bits)
+    //   [106:102] vs1 - source 1 register (5 bits)
+    //   [101:97]  vs2 - source 2 register (5 bits)
+    //   [95:76]   mem_addr (20 bits)
+    //   [63:48]   count (16 bits)
+    //   [47:32]   imm (16 bits)
     wire [7:0]  opcode  = cmd[127:120];
     wire [7:0]  subop   = cmd[119:112];
-    wire [4:0]  vd      = cmd[116:112];     // Destination vreg
-    wire [4:0]  vs1     = cmd[111:107];     // Source 1 vreg
-    wire [4:0]  vs2     = cmd[106:102];     // Source 2 vreg
+    wire [4:0]  vd      = cmd[111:107];     // Destination vreg (fixed: was 116:112)
+    wire [4:0]  vs1     = cmd[106:102];     // Source 1 vreg (fixed: was 111:107)
+    wire [4:0]  vs2     = cmd[101:97];      // Source 2 vreg (fixed: was 106:102)
     wire [15:0] imm     = cmd[47:32];       // Immediate value
     wire [SRAM_ADDR_W-1:0] mem_addr = cmd[95:96-SRAM_ADDR_W];
     wire [15:0] count   = cmd[63:48];       // Element count
@@ -80,9 +99,10 @@ module vector_unit #(
     
     reg [LANES*DATA_WIDTH-1:0] vrf [0:VREG_COUNT-1];
     
-    // Read ports
-    wire [LANES*DATA_WIDTH-1:0] vs1_data = vrf[vs1];
-    wire [LANES*DATA_WIDTH-1:0] vs2_data = vrf[vs2];
+    // Read ports - use registered indices for proper timing
+    // During S_IDLE, these may be invalid but that's OK since we don't use them yet
+    wire [LANES*DATA_WIDTH-1:0] vs1_data = vrf[vs1_reg];
+    wire [LANES*DATA_WIDTH-1:0] vs2_data = vrf[vs2_reg];
     
     //--------------------------------------------------------------------------
     // State Machine
@@ -121,7 +141,7 @@ module vector_unit #(
             always @(*) begin
                 lane_result[i] = {DATA_WIDTH{1'b0}};
                 
-                case (subop)
+                case (subop_reg)
                     VOP_ADD: begin
                         // Simple integer add (for BF16, would need FP adder)
                         lane_result[i] = lane_a[i] + lane_b[i];
@@ -157,7 +177,7 @@ module vector_unit #(
                     
                     VOP_BCAST: begin
                         // Broadcast immediate or first element
-                        lane_result[i] = imm;
+                        lane_result[i] = imm_reg;
                     end
                     
                     default: begin
@@ -194,7 +214,7 @@ module vector_unit #(
         // Build reduction tree
         for (stage = 1; stage <= REDUCE_STAGES; stage = stage + 1) begin
             for (lane = 0; lane < (LANES >> stage); lane = lane + 1) begin
-                case (subop)
+                case (subop_reg)
                     VOP_SUM: begin
                         reduce_tree[stage][lane] = reduce_tree[stage-1][lane*2] + 
                                                    reduce_tree[stage-1][lane*2+1];
@@ -239,6 +259,14 @@ module vector_unit #(
             sram_we_reg <= 1'b0;
             sram_re_reg <= 1'b0;
             done_reg <= 1'b0;
+            // Reset registered command fields
+            subop_reg <= 8'd0;
+            vd_reg <= 5'd0;
+            vs1_reg <= 5'd0;
+            vs2_reg <= 5'd0;
+            imm_reg <= 16'd0;
+            mem_addr_reg <= {SRAM_ADDR_W{1'b0}};
+            count_reg <= 16'd0;
         end else begin
             sram_we_reg <= 1'b0;
             sram_re_reg <= 1'b0;
@@ -248,24 +276,32 @@ module vector_unit #(
                 S_IDLE: begin
                     if (cmd_valid) begin
                         cmd_reg <= cmd;
+                        // Register all command fields for use in later states
+                        subop_reg <= subop;
+                        vd_reg <= vd;
+                        vs1_reg <= vs1;
+                        vs2_reg <= vs2;
+                        imm_reg <= imm;
+                        mem_addr_reg <= mem_addr;
+                        count_reg <= count;
                         state <= S_DECODE;
                     end
                 end
                 
                 S_DECODE: begin
-                    elem_count <= count;
-                    addr_reg <= mem_addr;
+                    elem_count <= count_reg;
+                    addr_reg <= mem_addr_reg;
                     
-                    case (subop)
+                    case (subop_reg)
                         VOP_LOAD: begin
                             sram_re_reg <= 1'b1;
-                            sram_addr_reg <= mem_addr;
+                            sram_addr_reg <= mem_addr_reg;
                             state <= S_MEM_WAIT;
                         end
                         
                         VOP_STORE: begin
                             sram_we_reg <= 1'b1;
-                            sram_addr_reg <= mem_addr;
+                            sram_addr_reg <= mem_addr_reg;
                             sram_wdata_reg <= vs1_data;
                             state <= S_MEM_WAIT;
                         end
@@ -282,22 +318,31 @@ module vector_unit #(
                 
                 S_EXECUTE: begin
                     // Write result to register file
-                    vrf[vd] <= alu_result;
+                    vrf[vd_reg] <= alu_result;
                     state <= S_DONE;
                 end
                 
                 S_MEM_WAIT: begin
                     if (sram_ready) begin
-                        if (subop == VOP_LOAD) begin
-                            vrf[vd] <= sram_rdata;
+                        if (subop_reg == VOP_LOAD) begin
+                            // Data arrives 1 cycle after ready, go to writeback
+                            state <= S_WRITEBACK;
+                        end else begin
+                            // Stores complete immediately
+                            state <= S_DONE;
                         end
-                        state <= S_DONE;
                     end
+                end
+                
+                S_WRITEBACK: begin
+                    // Capture delayed read data into VRF
+                    vrf[vd_reg] <= sram_rdata;
+                    state <= S_DONE;
                 end
                 
                 S_REDUCE: begin
                     // Reduction result goes to first element of destination
-                    vrf[vd] <= {{(LANES-1)*DATA_WIDTH{1'b0}}, reduce_result};
+                    vrf[vd_reg] <= {{(LANES-1)*DATA_WIDTH{1'b0}}, reduce_result};
                     state <= S_DONE;
                 end
                 

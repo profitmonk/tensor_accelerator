@@ -1,121 +1,132 @@
-//==============================================================================
-// Vector Processing Unit (VPU) Testbench - Robust Version
-//==============================================================================
-`timescale 1ns / 1ps
+`timescale 1ns/1ps
+/*
+ * Vector Unit Testbench
+ * Tests basic VPU operations with corrected command encoding
+ */
 
 module tb_vector_unit;
-    parameter CLK = 10;
+
     parameter LANES = 8;
     parameter DATA_WIDTH = 16;
-
-    reg clk = 0;
-    reg rst_n = 0;
-    always #(CLK/2) clk = ~clk;
-
-    reg [127:0] cmd = 0;
-    reg cmd_valid = 0;
-    wire cmd_ready, cmd_done;
+    parameter VREG_COUNT = 32;
+    parameter SRAM_ADDR_W = 20;
+    parameter CLK = 10;
     
-    wire [19:0] sram_addr;
+    reg clk, rst_n;
+    reg [127:0] cmd;
+    reg cmd_valid;
+    wire cmd_ready, cmd_done;
+    wire [SRAM_ADDR_W-1:0] sram_addr;
     wire [LANES*DATA_WIDTH-1:0] sram_wdata;
-    reg [LANES*DATA_WIDTH-1:0] sram_rdata = 0;
+    reg [LANES*DATA_WIDTH-1:0] sram_rdata;
     wire sram_we, sram_re;
-    reg sram_ready = 1;
-
-    vector_unit #(.LANES(LANES), .DATA_WIDTH(DATA_WIDTH)) dut (
+    reg sram_ready;
+    
+    // VPU opcodes
+    localparam VOP_ADD  = 8'h01;
+    localparam VOP_RELU = 8'h10;
+    localparam VOP_SUM  = 8'h20;
+    localparam VOP_ZERO = 8'h34;
+    
+    vector_unit #(
+        .LANES(LANES), .DATA_WIDTH(DATA_WIDTH), .VREG_COUNT(VREG_COUNT), .SRAM_ADDR_W(SRAM_ADDR_W)
+    ) dut (
         .clk(clk), .rst_n(rst_n),
         .cmd(cmd), .cmd_valid(cmd_valid), .cmd_ready(cmd_ready), .cmd_done(cmd_done),
         .sram_addr(sram_addr), .sram_wdata(sram_wdata), .sram_rdata(sram_rdata),
         .sram_we(sram_we), .sram_re(sram_re), .sram_ready(sram_ready)
     );
-
-    // Subops
-    localparam VOP_ADD = 8'h01, VOP_RELU = 8'h10, VOP_SUM = 8'h20, VOP_ZERO = 8'h34;
-
-    integer errors = 0, i, timeout;
-    reg signed [DATA_WIDTH-1:0] val;
-    reg cmd_accepted;
-
+    
+    initial clk = 0;
+    always #(CLK/2) clk = ~clk;
+    
+    // Command builder: [127:120]=opcode, [119:112]=subop, [111:107]=vd, [106:102]=vs1, [101:97]=vs2
+    function [127:0] make_cmd;
+        input [7:0] subop;
+        input [4:0] vd, vs1, vs2;
+    begin
+        make_cmd = 0;
+        make_cmd[127:120] = 8'h02;    // VPU opcode
+        make_cmd[119:112] = subop;
+        make_cmd[111:107] = vd;
+        make_cmd[106:102] = vs1;
+        make_cmd[101:97]  = vs2;
+    end
+    endfunction
+    
     task issue_cmd;
         input [127:0] c;
-        begin
-            cmd = c;
-            cmd_valid = 1;
-            cmd_accepted = 0;
-            timeout = 0;
-            while (!cmd_done && timeout < 50) begin
-                @(posedge clk);
-                #1;
-                if (cmd_ready && cmd_valid && !cmd_accepted) cmd_accepted = 1;
-                if (cmd_accepted) cmd_valid = 0;
-                timeout = timeout + 1;
-            end
-            @(posedge clk);  // Extra cycle for result to settle
-        end
+    begin
+        cmd = c; cmd_valid = 1;
+        @(posedge clk);
+        while (!cmd_ready) @(posedge clk);
+        @(posedge clk);
+        cmd_valid = 0;
+        while (!cmd_done) @(posedge clk);
+        @(posedge clk);
+    end
     endtask
-
-    task print_vreg;
-        input [4:0] r;
-        integer j;
-        begin
-            $write("    V%0d = [", r);
-            for (j = 0; j < LANES; j = j + 1) begin
-                val = $signed(dut.vrf[r][j*DATA_WIDTH +: DATA_WIDTH]);
-                $write("%0d", val);
-                if (j < LANES-1) $write(", ");
-            end
-            $display("]");
-        end
-    endtask
-
-    // Initialize all VRF to zero
+    
     task init_vrf;
-        integer r;
-        begin
-            for (r = 0; r < 32; r = r + 1) begin
-                dut.vrf[r] = 0;
-            end
-        end
+        integer k;
+    begin
+        for (k = 0; k < VREG_COUNT; k = k + 1) dut.vrf[k] = 0;
+    end
     endtask
-
+    
+    task print_vreg;
+        input [4:0] idx;
+    begin
+        $display("    V%0d = [%d, %d, %d, %d, %d, %d, %d, %d]", idx,
+            $signed(dut.vrf[idx][7*DATA_WIDTH +: DATA_WIDTH]),
+            $signed(dut.vrf[idx][6*DATA_WIDTH +: DATA_WIDTH]),
+            $signed(dut.vrf[idx][5*DATA_WIDTH +: DATA_WIDTH]),
+            $signed(dut.vrf[idx][4*DATA_WIDTH +: DATA_WIDTH]),
+            $signed(dut.vrf[idx][3*DATA_WIDTH +: DATA_WIDTH]),
+            $signed(dut.vrf[idx][2*DATA_WIDTH +: DATA_WIDTH]),
+            $signed(dut.vrf[idx][1*DATA_WIDTH +: DATA_WIDTH]),
+            $signed(dut.vrf[idx][0*DATA_WIDTH +: DATA_WIDTH]));
+    end
+    endtask
+    
+    integer errors;
+    reg signed [DATA_WIDTH-1:0] val;
+    
     initial begin
         $display("");
-        $display("╔════════════════════════════════════════════════════════════╗");
-        $display("║         Vector Processing Unit Testbench                   ║");
-        $display("╚════════════════════════════════════════════════════════════╝");
-
-        // Initialize VRF before reset
+        $display("╔══════════════════════════════════════════════════════════════╗");
+        $display("║              Vector Unit Testbench                           ║");
+        $display("╚══════════════════════════════════════════════════════════════╝");
+        
+        rst_n = 0; cmd = 0; cmd_valid = 0; sram_ready = 1; sram_rdata = 0;
+        errors = 0;
+        
+        repeat(5) @(posedge clk);
+        rst_n = 1;
+        repeat(3) @(posedge clk);
         init_vrf();
         
-        #(CLK*5); rst_n = 1; #(CLK*3);
-        
-        // Re-initialize after reset to be safe
-        init_vrf();
-        #(CLK*2);
-
         //======================================================================
         // TEST 1: Vector ADD
         //======================================================================
         $display("");
-        $display("[TEST 1] Vector ADD: V1 = V0 + V1");
+        $display("[TEST 1] Vector ADD: V2 = V0 + V1");
         
         dut.vrf[0] = {16'd8, 16'd7, 16'd6, 16'd5, 16'd4, 16'd3, 16'd2, 16'd1};
         dut.vrf[1] = {16'd80, 16'd70, 16'd60, 16'd50, 16'd40, 16'd30, 16'd20, 16'd10};
         print_vreg(0);
         print_vreg(1);
         
-        // VOP_ADD = 0x01 -> vd = 1
-        cmd = 0;
-        cmd[127:120] = 8'h02;
-        cmd[119:112] = VOP_ADD;
-        cmd[111:107] = 5'd0;   // vs1
-        cmd[106:102] = 5'd1;   // vs2
-        issue_cmd(cmd);
+        issue_cmd(make_cmd(VOP_ADD, 5'd2, 5'd0, 5'd1));  // vd=2, vs1=0, vs2=1
         
-        print_vreg(1);
-        val = $signed(dut.vrf[1][0 +: DATA_WIDTH]);
-        if (val == 11) $display("  PASS: V1[0] = %0d (1+10)", val);
-        else begin $display("  FAIL: V1[0] = %0d, expected 11", val); errors = errors + 1; end
+        print_vreg(2);
+        val = $signed(dut.vrf[2][0 +: DATA_WIDTH]);
+        if (val == 11) $display("  PASS: V2[0] = %0d (1+10)", val);
+        else begin $display("  FAIL: V2[0] = %0d, expected 11", val); errors = errors + 1; end
+        
+        val = $signed(dut.vrf[2][7*DATA_WIDTH +: DATA_WIDTH]);
+        if (val == 88) $display("  PASS: V2[7] = %0d (8+80)", val);
+        else begin $display("  FAIL: V2[7] = %0d, expected 88", val); errors = errors + 1; end
 
         #(CLK * 5);
 
@@ -125,18 +136,11 @@ module tb_vector_unit;
         $display("");
         $display("[TEST 2] ReLU: V16 = relu(V5)");
         
-        // Initialize fresh
         init_vrf();
         dut.vrf[5] = {16'sh0007, 16'sh0005, 16'sh0003, 16'sh0001, 16'sh0000, 16'shFFFF, 16'shFFFD, 16'shFFFB};
-        // That's [7, 5, 3, 1, 0, -1, -3, -5] in signed
         print_vreg(5);
         
-        // VOP_RELU = 0x10 -> vd = 16
-        cmd = 0;
-        cmd[127:120] = 8'h02;
-        cmd[119:112] = VOP_RELU;
-        cmd[111:107] = 5'd5;
-        issue_cmd(cmd);
+        issue_cmd(make_cmd(VOP_RELU, 5'd16, 5'd5, 5'd0));  // vd=16, vs1=5
         
         print_vreg(16);
         val = $signed(dut.vrf[16][0 +: DATA_WIDTH]);
@@ -159,12 +163,7 @@ module tb_vector_unit;
         dut.vrf[3] = {16'd8, 16'd7, 16'd6, 16'd5, 16'd4, 16'd3, 16'd2, 16'd1};
         print_vreg(3);
         
-        // VOP_SUM = 0x20 -> vd = 0
-        cmd = 0;
-        cmd[127:120] = 8'h02;
-        cmd[119:112] = VOP_SUM;
-        cmd[111:107] = 5'd3;
-        issue_cmd(cmd);
+        issue_cmd(make_cmd(VOP_SUM, 5'd0, 5'd3, 5'd0));  // vd=0, vs1=3
         
         print_vreg(0);
         val = $signed(dut.vrf[0][0 +: DATA_WIDTH]);
@@ -182,12 +181,7 @@ module tb_vector_unit;
         dut.vrf[20] = {LANES{16'hFFFF}};
         $display("    Before: V20 = %h", dut.vrf[20]);
         
-        // VOP_ZERO = 0x34 -> vd = 20
-        cmd = 0;
-        cmd[127:120] = 8'h02;
-        cmd[119:112] = VOP_ZERO;
-        cmd[111:107] = 5'd0;
-        issue_cmd(cmd);
+        issue_cmd(make_cmd(VOP_ZERO, 5'd20, 5'd0, 5'd0));  // vd=20
         
         $display("    After:  V20 = %h", dut.vrf[20]);
         if (dut.vrf[20] == 0) $display("  PASS: V20 zeroed");
@@ -198,14 +192,17 @@ module tb_vector_unit;
         //======================================================================
         #(CLK * 10);
         $display("");
-        $display("════════════════════════════════════════");
-        $display("Tests: 4, Errors: %0d", errors);
-        if (errors == 0) $display(">>> ALL TESTS PASSED! <<<");
-        else $display(">>> SOME TESTS FAILED <<<");
-        $display("");
+        $display("════════════════════════════════════════════════════════════");
+        if (errors == 0) begin
+            $display(">>> ALL TESTS PASSED! <<<");
+        end else begin
+            $display(">>> SOME TESTS FAILED <<<");
+            $display("    Errors: %0d", errors);
+        end
+        $display("════════════════════════════════════════════════════════════");
         $finish;
     end
+    
+    initial #50000 begin $display("TIMEOUT"); $finish; end
 
-    initial begin $dumpfile("vpu.vcd"); $dumpvars(0, tb_vector_unit); end
-    initial begin #(CLK * 5000); $display("TIMEOUT!"); $finish; end
 endmodule

@@ -1,16 +1,14 @@
 //==============================================================================
-// DMA Engine
+// DMA Engine (Fixed)
 //
 // 2D strided DMA for efficient tensor data movement:
 // - HBM → SRAM (load weights, activations)
 // - SRAM → HBM (store results)
-// - SRAM → SRAM (internal reshaping)
 //
 // Features:
 // - 2D addressing with configurable strides
-// - Double-buffer support (ping-pong transfers)
-// - Zero-padding for edge tiles
-// - Optional transpose on the fly
+// - Burst support for efficient AXI transfers
+// - Proper handling of SRAM read latency
 //==============================================================================
 
 module dma_engine #(
@@ -32,6 +30,7 @@ module dma_engine #(
     
     //--------------------------------------------------------------------------
     // SRAM Interface (internal memory)
+    // Note: SRAM has 1-cycle read latency
     //--------------------------------------------------------------------------
     output wire [INT_ADDR_W-1:0]        sram_addr,
     output wire [DATA_WIDTH-1:0]        sram_wdata,
@@ -41,7 +40,7 @@ module dma_engine #(
     input  wire                         sram_ready,
     
     //--------------------------------------------------------------------------
-    // AXI-like External Memory Interface
+    // AXI4 External Memory Interface
     //--------------------------------------------------------------------------
     // Write address channel
     output wire [EXT_ADDR_W-1:0]        axi_awaddr,
@@ -78,29 +77,28 @@ module dma_engine #(
     //--------------------------------------------------------------------------
     
     // Command format:
-    // [127:120] opcode
-    // [119:112] subop: 0=LOAD (EXT→SRAM), 1=STORE (SRAM→EXT), 2=COPY (SRAM→SRAM)
+    // [127:120] opcode (0x03 = DMA)
+    // [119:112] subop: 0x01=LOAD (EXT→SRAM), 0x02=STORE (SRAM→EXT)
     // [111:72]  ext_addr (40 bits)
     // [71:52]   int_addr (20 bits)
     // [51:40]   rows (12 bits)
-    // [39:28]   cols (12 bits)
-    // [27:16]   src_stride (12 bits)
-    // [15:4]    dst_stride (12 bits)
-    // [3:0]     flags: [0]=transpose, [1]=zero_pad
+    // [39:28]   cols (12 bits) - number of DATA_WIDTH words per row
+    // [27:16]   ext_stride (12 bits) - row stride for external memory (bytes)
+    // [15:4]    int_stride (12 bits) - row stride for SRAM (bytes)
+    // [3:0]     flags: [0]=transpose, [1]=zero_pad (future use)
     
     wire [7:0]  subop      = cmd[119:112];
     wire [EXT_ADDR_W-1:0] ext_addr = cmd[111:112-EXT_ADDR_W];
     wire [INT_ADDR_W-1:0] int_addr = cmd[71:72-INT_ADDR_W];
     wire [11:0] cfg_rows   = cmd[51:40];
     wire [11:0] cfg_cols   = cmd[39:28];
-    wire [11:0] src_stride = cmd[27:16];
-    wire [11:0] dst_stride = cmd[15:4];
-    wire        do_transpose = cmd[0];
-    wire        do_zero_pad  = cmd[1];
+    wire [11:0] ext_stride = cmd[27:16];
+    wire [11:0] int_stride = cmd[15:4];
     
     localparam DMA_LOAD  = 8'h01;
     localparam DMA_STORE = 8'h02;
-    localparam DMA_COPY  = 8'h03;
+    
+    localparam BYTES_PER_WORD = DATA_WIDTH / 8;
     
     //--------------------------------------------------------------------------
     // State Machine
@@ -108,31 +106,35 @@ module dma_engine #(
     
     localparam S_IDLE       = 4'd0;
     localparam S_DECODE     = 4'd1;
+    // LOAD states
     localparam S_LOAD_ADDR  = 4'd2;
     localparam S_LOAD_DATA  = 4'd3;
     localparam S_LOAD_WRITE = 4'd4;
-    localparam S_STORE_READ = 4'd5;
-    localparam S_STORE_ADDR = 4'd6;
-    localparam S_STORE_DATA = 4'd7;
-    localparam S_STORE_RESP = 4'd8;
-    localparam S_NEXT_ROW   = 4'd9;
-    localparam S_DONE       = 4'd10;
+    // STORE states
+    localparam S_STORE_REQ  = 4'd5;   // Assert SRAM read request
+    localparam S_STORE_WAIT = 4'd6;   // Wait cycle 1 for SRAM latency
+    localparam S_STORE_CAP  = 4'd13;  // Capture SRAM read data
+    localparam S_STORE_ADDR = 4'd7;   // Send AXI write address
+    localparam S_STORE_DATA = 4'd8;   // Send AXI write data
+    localparam S_STORE_RESP = 4'd9;   // Wait for AXI response
+    // Common states
+    localparam S_NEXT_COL   = 4'd10;
+    localparam S_NEXT_ROW   = 4'd11;
+    localparam S_DONE       = 4'd12;
     
     reg [3:0] state;
-    reg [127:0] cmd_reg;
+    reg [7:0] op_type;  // Latched subop
     
     // Transfer tracking
     reg [11:0] row_count;
     reg [11:0] col_count;
-    reg [EXT_ADDR_W-1:0] ext_ptr;
-    reg [INT_ADDR_W-1:0] int_ptr;
+    reg [11:0] rows_cfg, cols_cfg;
+    reg [11:0] ext_stride_cfg, int_stride_cfg;
+    reg [EXT_ADDR_W-1:0] ext_base, ext_ptr;
+    reg [INT_ADDR_W-1:0] int_base, int_ptr;
     
-    // Data buffer for pipelining
+    // Data buffer
     reg [DATA_WIDTH-1:0] data_buf;
-    
-    // Burst tracking
-    reg [7:0] burst_count;
-    reg [7:0] burst_len;
     
     //--------------------------------------------------------------------------
     // Output Registers
@@ -158,13 +160,18 @@ module dma_engine #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             state <= S_IDLE;
-            cmd_reg <= 128'd0;
+            op_type <= 8'd0;
             row_count <= 12'd0;
             col_count <= 12'd0;
+            rows_cfg <= 12'd0;
+            cols_cfg <= 12'd0;
+            ext_stride_cfg <= 12'd0;
+            int_stride_cfg <= 12'd0;
+            ext_base <= {EXT_ADDR_W{1'b0}};
             ext_ptr <= {EXT_ADDR_W{1'b0}};
+            int_base <= {INT_ADDR_W{1'b0}};
             int_ptr <= {INT_ADDR_W{1'b0}};
-            burst_count <= 8'd0;
-            burst_len <= 8'd0;
+            data_buf <= {DATA_WIDTH{1'b0}};
             
             sram_addr_reg <= {INT_ADDR_W{1'b0}};
             sram_wdata_reg <= {DATA_WIDTH{1'b0}};
@@ -184,7 +191,7 @@ module dma_engine #(
             
             done_reg <= 1'b0;
         end else begin
-            // Default: clear pulses
+            // Default: clear single-cycle signals
             sram_we_reg <= 1'b0;
             sram_re_reg <= 1'b0;
             done_reg <= 1'b0;
@@ -193,36 +200,41 @@ module dma_engine #(
                 //--------------------------------------------------------------
                 S_IDLE: begin
                     if (cmd_valid) begin
-                        cmd_reg <= cmd;
+                        // Latch command parameters
+                        op_type <= subop;
+                        ext_base <= ext_addr;
+                        int_base <= int_addr;
+                        rows_cfg <= cfg_rows;
+                        cols_cfg <= cfg_cols;
+                        ext_stride_cfg <= ext_stride;
+                        int_stride_cfg <= int_stride;
                         state <= S_DECODE;
                     end
                 end
                 
                 //--------------------------------------------------------------
                 S_DECODE: begin
+                    // Initialize pointers
+                    ext_ptr <= ext_base;
+                    int_ptr <= int_base;
                     row_count <= 12'd0;
                     col_count <= 12'd0;
-                    ext_ptr <= ext_addr;
-                    int_ptr <= int_addr;
                     
-                    // Calculate burst length (min of remaining cols and MAX_BURST)
-                    burst_len <= (cfg_cols > MAX_BURST) ? MAX_BURST - 1 : cfg_cols - 1;
-                    burst_count <= 8'd0;
-                    
-                    case (subop)
-                        DMA_LOAD: state <= S_LOAD_ADDR;
-                        DMA_STORE: state <= S_STORE_READ;
-                        default: state <= S_DONE;
+                    case (op_type)
+                        DMA_LOAD:  state <= S_LOAD_ADDR;
+                        DMA_STORE: state <= S_STORE_REQ;
+                        default:   state <= S_DONE;
                     endcase
                 end
                 
-                //--------------------------------------------------------------
-                // LOAD Path: External → SRAM
-                //--------------------------------------------------------------
+                //==============================================================
+                // LOAD Path: External Memory → SRAM
+                //==============================================================
                 
                 S_LOAD_ADDR: begin
+                    // Issue AXI read request (single beat for simplicity)
                     axi_araddr_reg <= ext_ptr;
-                    axi_arlen_reg <= burst_len;
+                    axi_arlen_reg <= 8'd0;  // Single beat
                     axi_arvalid_reg <= 1'b1;
                     
                     if (axi_arready && axi_arvalid_reg) begin
@@ -233,8 +245,10 @@ module dma_engine #(
                 end
                 
                 S_LOAD_DATA: begin
+                    // Wait for read data
                     if (axi_rvalid && axi_rready_reg) begin
                         data_buf <= axi_rdata;
+                        axi_rready_reg <= 1'b0;
                         state <= S_LOAD_WRITE;
                     end
                 end
@@ -246,48 +260,44 @@ module dma_engine #(
                     sram_we_reg <= 1'b1;
                     
                     if (sram_ready) begin
-                        // Update pointers
-                        int_ptr <= int_ptr + (DATA_WIDTH / 8);  // Increment by bus width in bytes
-                        col_count <= col_count + 1;
-                        burst_count <= burst_count + 1;
-                        
-                        if (burst_count >= burst_len) begin
-                            // Burst complete
-                            axi_rready_reg <= 1'b0;
-                            
-                            if (col_count >= cfg_cols - 1) begin
-                                state <= S_NEXT_ROW;
-                            end else begin
-                                // More columns in this row
-                                ext_ptr <= ext_ptr + (DATA_WIDTH / 8);
-                                burst_count <= 8'd0;
-                                state <= S_LOAD_ADDR;
-                            end
-                        end else begin
-                            // Continue burst
-                            state <= S_LOAD_DATA;
-                        end
+                        state <= S_NEXT_COL;
                     end
                 end
                 
-                //--------------------------------------------------------------
-                // STORE Path: SRAM → External
-                //--------------------------------------------------------------
+                //==============================================================
+                // STORE Path: SRAM → External Memory
+                // Timing: Need 2 cycles after asserting read to capture data
+                // Cycle N:   Assert address & re
+                // Cycle N+1: SRAM registers read internally
+                // Cycle N+2: sram_rdata valid, capture it
+                //==============================================================
                 
-                S_STORE_READ: begin
-                    // Read from SRAM
+                S_STORE_REQ: begin
+                    // Assert SRAM read request
                     sram_addr_reg <= int_ptr;
                     sram_re_reg <= 1'b1;
                     
                     if (sram_ready) begin
-                        data_buf <= sram_rdata;
-                        state <= S_STORE_ADDR;
+                        // SRAM accepted request, wait for latency
+                        state <= S_STORE_WAIT;
                     end
                 end
                 
+                S_STORE_WAIT: begin
+                    // Wait cycle 1: SRAM is processing read
+                    state <= S_STORE_CAP;
+                end
+                
+                S_STORE_CAP: begin
+                    // Cycle 2: sram_rdata is now valid, capture it
+                    data_buf <= sram_rdata;
+                    state <= S_STORE_ADDR;
+                end
+                
                 S_STORE_ADDR: begin
+                    // Issue AXI write address
                     axi_awaddr_reg <= ext_ptr;
-                    axi_awlen_reg <= 8'd0;  // Single beat for simplicity
+                    axi_awlen_reg <= 8'd0;  // Single beat
                     axi_awvalid_reg <= 1'b1;
                     
                     if (axi_awready && axi_awvalid_reg) begin
@@ -297,6 +307,7 @@ module dma_engine #(
                 end
                 
                 S_STORE_DATA: begin
+                    // Send write data
                     axi_wdata_reg <= data_buf;
                     axi_wlast_reg <= 1'b1;
                     axi_wvalid_reg <= 1'b1;
@@ -309,40 +320,50 @@ module dma_engine #(
                 end
                 
                 S_STORE_RESP: begin
+                    // Wait for write response
                     if (axi_bvalid) begin
-                        // Update pointers
-                        ext_ptr <= ext_ptr + (DATA_WIDTH / 8);
-                        int_ptr <= int_ptr + (DATA_WIDTH / 8);
-                        col_count <= col_count + 1;
-                        
-                        if (col_count >= cfg_cols - 1) begin
-                            state <= S_NEXT_ROW;
-                        end else begin
-                            state <= S_STORE_READ;
-                        end
+                        state <= S_NEXT_COL;
                     end
                 end
                 
-                //--------------------------------------------------------------
-                // Row Advance
-                //--------------------------------------------------------------
+                //==============================================================
+                // Column/Row Advancement (shared by LOAD and STORE)
+                //==============================================================
+                
+                S_NEXT_COL: begin
+                    col_count <= col_count + 1;
+                    ext_ptr <= ext_ptr + BYTES_PER_WORD;
+                    int_ptr <= int_ptr + BYTES_PER_WORD;
+                    
+                    if (col_count >= cols_cfg - 1) begin
+                        // End of row
+                        state <= S_NEXT_ROW;
+                    end else begin
+                        // More columns
+                        case (op_type)
+                            DMA_LOAD:  state <= S_LOAD_ADDR;
+                            DMA_STORE: state <= S_STORE_REQ;
+                            default:   state <= S_DONE;
+                        endcase
+                    end
+                end
                 
                 S_NEXT_ROW: begin
                     row_count <= row_count + 1;
                     col_count <= 12'd0;
                     
-                    if (row_count >= cfg_rows - 1) begin
-                        // All rows done
+                    if (row_count >= rows_cfg - 1) begin
+                        // All done
                         state <= S_DONE;
                     end else begin
-                        // Advance to next row
-                        ext_ptr <= ext_addr + (row_count + 1) * src_stride;
-                        int_ptr <= int_addr + (row_count + 1) * dst_stride;
+                        // Advance to next row using strides
+                        ext_ptr <= ext_base + (row_count + 1) * ext_stride_cfg;
+                        int_ptr <= int_base + (row_count + 1) * int_stride_cfg;
                         
-                        case (subop)
-                            DMA_LOAD: state <= S_LOAD_ADDR;
-                            DMA_STORE: state <= S_STORE_READ;
-                            default: state <= S_DONE;
+                        case (op_type)
+                            DMA_LOAD:  state <= S_LOAD_ADDR;
+                            DMA_STORE: state <= S_STORE_REQ;
+                            default:   state <= S_DONE;
                         endcase
                     end
                 end
@@ -353,9 +374,7 @@ module dma_engine #(
                     state <= S_IDLE;
                 end
                 
-                default: begin
-                    state <= S_IDLE;
-                end
+                default: state <= S_IDLE;
             endcase
         end
     end

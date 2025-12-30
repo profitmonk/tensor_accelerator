@@ -57,6 +57,9 @@ run_test "SRAM Subsystem" \
 run_test "NoC Router" \
     "iverilog -g2012 -o sim/tb_noc rtl/noc/noc_router.v tb/tb_noc_router.v" "tb_noc"
 
+run_test "NoC 2x2 Mesh" \
+    "iverilog -g2012 -o sim/tb_noc_mesh rtl/noc/noc_router.v tb/tb_noc_mesh_2x2.v" "tb_noc_mesh" "NOC MESH INTEGRATION TESTS PASSED"
+
 echo ""
 echo "═══════════════ INTEGRATION TESTS ═══════════════"
 
@@ -99,6 +102,42 @@ run_test "Stress: Random Matrix (numpy-verified)" \
     "tb_random_simple" "RANDOM MATRIX TEST PASSED"
 
 echo ""
+echo "═══════════════ DMA TESTS ═══════════════"
+
+run_test "DMA: LOAD/STORE with AXI Memory" \
+    "iverilog -g2012 -DSIM -o sim/tb_dma_axi rtl/core/dma_engine.v rtl/memory/axi_memory_model.v tb/tb_dma_axi.v" \
+    "tb_dma_axi" "ALL DMA TESTS PASSED"
+
+echo ""
+echo "═══════════════ MULTI-TPC TESTS ═══════════════"
+
+TOP_FILES="rtl/control/local_cmd_processor.v rtl/control/global_cmd_processor.v rtl/core/systolic_array.v rtl/core/mac_pe.v rtl/core/vector_unit.v rtl/core/dma_engine.v rtl/memory/sram_subsystem.v rtl/memory/axi_memory_model.v rtl/top/tensor_processing_cluster.v rtl/top/tensor_accelerator_top.v"
+
+run_test "Multi-TPC: 4-way Parallel Tiled GEMM" \
+    "iverilog -g2012 -DSIM -o sim/tb_multi_tpc_gemm $TOP_FILES tb/tb_multi_tpc_gemm.v" \
+    "tb_multi_tpc_gemm" "MULTI-TPC GEMM TEST PASSED"
+
+run_test "K-Accumulation: Tiled GEMM with VPU ADD" \
+    "iverilog -g2012 -DSIM -o sim/tb_k_accumulation $TPC_FILES tb/tb_k_accumulation.v" \
+    "tb_k_accumulation" "K-ACCUMULATION TEST PASSED"
+
+run_test "E2E Inference: ReLU(X×W + bias)" \
+    "iverilog -g2012 -DSIM -o sim/tb_e2e_inference $TPC_FILES tb/tb_e2e_inference.v" \
+    "tb_e2e_inference" "E2E INFERENCE TEST PASSED"
+
+run_test "Residual Block: Y = ReLU(X×W+b) + X" \
+    "iverilog -g2012 -DSIM -o sim/tb_residual_block $TPC_FILES tb/tb_residual_block.v" \
+    "tb_residual_block" "RESIDUAL BLOCK TEST PASSED"
+
+run_test "Batch Processing: N samples, shared weights" \
+    "iverilog -g2012 -DSIM -o sim/tb_batch_inference $TPC_FILES tb/tb_batch_inference.v" \
+    "tb_batch_inference" "BATCH PROCESSING TEST PASSED"
+
+run_test "2-Layer MLP: Layer chaining" \
+    "iverilog -g2012 -DSIM -o sim/tb_mlp_2layer $TPC_FILES tb/tb_mlp_2layer.v" \
+    "tb_mlp_2layer" "2-LAYER MLP TEST PASSED"
+
+echo ""
 echo "═══════════════ PYTHON MODEL TESTS ═══════════════"
 
 echo ""
@@ -124,3 +163,38 @@ echo "╚═══════════════════════�
 
 if [ $FAIL -eq 0 ]; then echo ">>> ALL TESTS PASSED! <<<"; exit 0
 else echo ">>> SOME TESTS FAILED <<<"; exit 1; fi
+
+echo ""
+echo "═══════════════ PYTHON MODEL TESTS (EXTENDED) ═══════════════"
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "TEST: DMA Python Model"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+cd model && python3 dma_model.py
+if [ $? -eq 0 ]; then echo "✓ PASSED"; ((PASSED++)); else echo "✗ FAILED"; ((FAILED++)); fi
+cd ..
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "TEST: VPU Python Model"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+cd model && python3 vpu_model.py
+if [ $? -eq 0 ]; then echo "✓ PASSED"; ((PASSED++)); else echo "✗ FAILED"; ((FAILED++)); fi
+cd ..
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "TEST: LCP Python Model"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+cd model && python3 lcp_model.py
+if [ $? -eq 0 ]; then echo "✓ PASSED"; ((PASSED++)); else echo "✗ FAILED"; ((FAILED++)); fi
+cd ..
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "TEST: TPC Integrated Python Model"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+cd model && python3 tpc_model.py
+if [ $? -eq 0 ]; then echo "✓ PASSED"; ((PASSED++)); else echo "✗ FAILED"; ((FAILED++)); fi
+cd ..

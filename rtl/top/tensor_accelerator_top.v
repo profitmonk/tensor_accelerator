@@ -287,36 +287,41 @@ module tensor_accelerator_top #(
     // For FPGA POC: Simple round-robin arbiter for TPC AXI access
     // Production: Use proper AXI interconnect IP
     
-    reg [$clog2(NUM_TPCS)-1:0] axi_arb_ptr;
     reg [$clog2(NUM_TPCS)-1:0] active_tpc;
     reg axi_transaction_active;
     
     // Find next TPC with pending request
     wire [NUM_TPCS-1:0] pending_read  = tpc_axi_arvalid;
     wire [NUM_TPCS-1:0] pending_write = tpc_axi_awvalid;
-    wire any_pending = |pending_read || |pending_write;
+    wire [NUM_TPCS-1:0] pending = pending_read | pending_write;
+    wire any_pending = |pending;
+    
+    // Priority encoder for next TPC (simple fixed priority for now)
+    reg [$clog2(NUM_TPCS)-1:0] next_tpc;
+    always @(*) begin
+        casez (pending)
+            4'b???1: next_tpc = 2'd0;
+            4'b??10: next_tpc = 2'd1;
+            4'b?100: next_tpc = 2'd2;
+            4'b1000: next_tpc = 2'd3;
+            default: next_tpc = 2'd0;
+        endcase
+    end
     
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            axi_arb_ptr <= 0;
             active_tpc <= 0;
             axi_transaction_active <= 1'b0;
         end else begin
             if (!axi_transaction_active && any_pending) begin
-                // Start new transaction
-                for (integer i = 0; i < NUM_TPCS; i = i + 1) begin
-                    if (pending_read[(axi_arb_ptr + i) % NUM_TPCS] || 
-                        pending_write[(axi_arb_ptr + i) % NUM_TPCS]) begin
-                        active_tpc <= (axi_arb_ptr + i) % NUM_TPCS;
-                        axi_transaction_active <= 1'b1;
-                    end
-                end
+                // Start new transaction with first pending TPC
+                active_tpc <= next_tpc;
+                axi_transaction_active <= 1'b1;
             end else if (axi_transaction_active) begin
                 // Check for transaction completion
                 if ((m_axi_bvalid && m_axi_bready) || 
                     (m_axi_rvalid && m_axi_rlast && m_axi_rready)) begin
                     axi_transaction_active <= 1'b0;
-                    axi_arb_ptr <= (active_tpc + 1) % NUM_TPCS;
                 end
             end
         end
@@ -349,14 +354,14 @@ module tensor_accelerator_top #(
     // Demux responses to TPCs
     generate
         for (t = 0; t < NUM_TPCS; t = t + 1) begin : axi_demux_gen
-            assign tpc_axi_awready[t] = (active_tpc == t) && m_axi_awready;
-            assign tpc_axi_wready[t]  = (active_tpc == t) && m_axi_wready;
+            assign tpc_axi_awready[t] = (active_tpc == t) && axi_transaction_active && m_axi_awready;
+            assign tpc_axi_wready[t]  = (active_tpc == t) && axi_transaction_active && m_axi_wready;
             assign tpc_axi_bresp[t]   = m_axi_bresp;
-            assign tpc_axi_bvalid[t]  = (active_tpc == t) && m_axi_bvalid;
-            assign tpc_axi_arready[t] = (active_tpc == t) && m_axi_arready;
+            assign tpc_axi_bvalid[t]  = (active_tpc == t) && axi_transaction_active && m_axi_bvalid;
+            assign tpc_axi_arready[t] = (active_tpc == t) && axi_transaction_active && m_axi_arready;
             assign tpc_axi_rdata[t]   = m_axi_rdata;
             assign tpc_axi_rlast[t]   = m_axi_rlast;
-            assign tpc_axi_rvalid[t]  = (active_tpc == t) && m_axi_rvalid;
+            assign tpc_axi_rvalid[t]  = (active_tpc == t) && axi_transaction_active && m_axi_rvalid;
         end
     endgenerate
 
