@@ -18,7 +18,7 @@ run_test() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
     if eval "$compile_cmd" 2>/dev/null; then
-        output=$(cd sim && vvp "$sim_exe" 2>&1)
+        output=$(vvp "sim/$sim_exe" 2>&1)
         echo "$output" | tail -20
         if echo "$output" | grep -q "$pass_pattern"; then
             echo "✓ PASSED"; PASS=$((PASS + 1))
@@ -270,6 +270,52 @@ run_test "Attention (Q,K,V 8×16)" \
     "tb_attention" "PHASE_D_ATTENTION TEST PASSED"
 
 echo ""
+echo "═══════════════ PHASE E: STRESS TESTING ═══════════════"
+echo "(Back-to-back ops, multi-TPC, boundary conditions)"
+
+# Generate Phase E test vectors if needed
+if [ ! -f "tests/realistic/phase_e/test_vectors/test1_A_int8.hex" ]; then
+    echo ""
+    echo "Generating Phase E test vectors..."
+    python3 tests/realistic/phase_e/golden.py > /dev/null 2>&1
+fi
+
+run_test "Back-to-Back GEMM (3 stages)" \
+    "iverilog -g2012 -o sim/tb_back_to_back tests/realistic/phase_e/tb_back_to_back.v" \
+    "tb_back_to_back" "PHASE_E_BACK_TO_BACK TEST PASSED"
+
+run_test "Multi-TPC Parallel (4 TPCs)" \
+    "iverilog -g2012 -o sim/tb_multi_tpc tests/realistic/phase_e/tb_multi_tpc.v" \
+    "tb_multi_tpc" "PHASE_E_MULTI_TPC TEST PASSED"
+
+run_test "Boundary Conditions (5 subtests)" \
+    "iverilog -g2012 -o sim/tb_boundary tests/realistic/phase_e/tb_boundary.v" \
+    "tb_boundary" "PHASE_E_BOUNDARY TEST PASSED"
+
+echo ""
+echo "═══════════════ PHASE F: FULL MODEL E2E ═══════════════"
+echo "(LeNet-5, ResNet Block, Batch Inference)"
+
+# Generate Phase F test vectors if needed
+if [ ! -f "tests/realistic/phase_f/test_vectors/test1_input.hex" ]; then
+    echo ""
+    echo "Generating Phase F test vectors..."
+    python3 tests/realistic/phase_f/golden.py > /dev/null 2>&1
+fi
+
+run_test "LeNet-5 Full (8 layers)" \
+    "iverilog -g2012 -o sim/tb_lenet5_full tests/realistic/phase_f/tb_lenet5_full.v" \
+    "tb_lenet5_full" "PHASE_F_LENET5 TEST PASSED"
+
+run_test "ResNet Block Full (residual)" \
+    "iverilog -g2012 -o sim/tb_resnet_block_full tests/realistic/phase_f/tb_resnet_block_full.v" \
+    "tb_resnet_block_full" "PHASE_F_RESNET_BLOCK TEST PASSED"
+
+run_test "Batch Inference (batch=4)" \
+    "iverilog -g2012 -o sim/tb_batch_inference tests/realistic/phase_f/tb_batch_inference.v" \
+    "tb_batch_inference" "PHASE_F_BATCH TEST PASSED"
+
+echo ""
 echo "═══════════════ PYTHON MODEL TESTS ═══════════════"
 
 echo ""
@@ -329,4 +375,3 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 cd model && python3 tpc_model.py
 if [ $? -eq 0 ]; then echo "✓ PASSED"; ((PASSED++)); else echo "✗ FAILED"; ((FAILED++)); fi
 cd ..
-

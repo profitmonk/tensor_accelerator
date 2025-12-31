@@ -1,0 +1,46 @@
+{
+  "test1_lenet5": {
+    "input_shape": [
+      1,
+      1,
+      28,
+      28
+    ],
+    "output_shape": [
+      1,
+      10
+    ],
+    "predicted_class": 3
+  },
+  "test2_resnet_block": {
+    "channels": 16,
+    "spatial": [
+      14,
+      14
+    ],
+    "input_shape": [
+      1,
+      16,
+      14,
+      14
+    ],
+    "output_shape": [
+      1,
+      16,
+      14,
+      14
+    ]
+  },
+  "test3_batch": {
+    "batch_size": 4,
+    "in_features": 64,
+    "hidden": 32,
+    "out_features": 10,
+    "predictions": [
+      6,
+      0,
+      3,
+      6
+    ]
+  }
+}

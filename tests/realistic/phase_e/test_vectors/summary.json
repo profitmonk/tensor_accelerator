@@ -1,0 +1,96 @@
+{
+  "test1_back_to_back": {
+    "stages": [
+      {
+        "M": 32,
+        "K": 24,
+        "N": 16,
+        "cycles": 192
+      },
+      {
+        "M": 32,
+        "K": 16,
+        "N": 12,
+        "cycles": 128
+      },
+      {
+        "M": 32,
+        "K": 12,
+        "N": 8,
+        "cycles": 48
+      }
+    ],
+    "total_cycles": 368,
+    "total_macs": 21504
+  },
+  "test2_max_sram": {
+    "M": 256,
+    "K": 256,
+    "N": 64,
+    "bytes_A": 65536,
+    "bytes_B": 16384,
+    "bytes_C": 65536,
+    "total_bytes": 147456,
+    "sram_utilization": 7.03125,
+    "cycles": 65536,
+    "total_macs": 4194304
+  },
+  "test3_multi_tpc": {
+    "tpc0": {
+      "op": "QK^T",
+      "cycles": 256,
+      "macs": 16384
+    },
+    "tpc1": {
+      "op": "Attn@V",
+      "cycles": 256,
+      "macs": 16384
+    },
+    "tpc2": {
+      "op": "FC1",
+      "cycles": 8192,
+      "macs": 524288
+    },
+    "tpc3": {
+      "op": "FC2",
+      "cycles": 8192,
+      "macs": 524288
+    },
+    "parallel_cycles": 8192,
+    "total_macs": 1081344
+  },
+  "test4_hazards": {
+    "M": 16,
+    "K": 16,
+    "N": 16,
+    "stages": [
+      "C=A\u00d7B",
+      "D=C\u00d7E (RAW)",
+      "F=C\u00d7G (reuse)",
+      "C_new=A_new\u00d7B (WAR)"
+    ],
+    "total_cycles": 256
+  },
+  "test5_boundary": {
+    "5a_unaligned": {
+      "M": 7,
+      "K": 13,
+      "N": 5
+    },
+    "5b_single": {
+      "result": 5000
+    },
+    "5c_max": {
+      "expected": 129032,
+      "actual": 129032
+    },
+    "5d_min": {
+      "expected": 131072,
+      "actual": 131072
+    },
+    "5e_mixed": {
+      "expected": -130048,
+      "actual": -130048
+    }
+  }
+}
