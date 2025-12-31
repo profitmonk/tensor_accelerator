@@ -137,6 +137,138 @@ run_test "2-Layer MLP: Layer chaining" \
     "iverilog -g2012 -DSIM -o sim/tb_mlp_2layer $TPC_FILES tb/tb_mlp_2layer.v" \
     "tb_mlp_2layer" "2-LAYER MLP TEST PASSED"
 
+run_test "Tiled GEMM: K-accumulation" \
+    "iverilog -g2012 -DSIM -o sim/tb_tiled_gemm $TPC_FILES tb/tb_tiled_gemm.v" \
+    "tb_tiled_gemm" "TILED GEMM TEST PASSED"
+
+run_test "Conv2D Multi-Channel: im2col + GEMM" \
+    "iverilog -g2012 -DSIM -o sim/tb_conv2d_multichannel $TPC_FILES tb/tb_conv2d_multichannel.v" \
+    "tb_conv2d_multichannel" "CONV2D MULTICHANNEL TEST PASSED"
+
+run_test "Attention Score: Two-GEMM + VPU ReLU" \
+    "iverilog -g2012 -DSIM -o sim/tb_attention $TPC_FILES tb/tb_attention.v" \
+    "tb_attention" "ATTENTION TEST PASSED"
+
+# VPU Completeness Tests (Option A)
+run_test "VPU MUL: Element-wise multiply" \
+    "iverilog -g2012 -DSIM -o sim/tb_vpu_mul rtl/core/vector_unit.v tb/tb_vpu_mul.v" \
+    "tb_vpu_mul" "VPU MUL TEST PASSED"
+
+run_test "VPU Reduce: SUM, MAX, MIN" \
+    "iverilog -g2012 -DSIM -o sim/tb_vpu_reduce rtl/core/vector_unit.v tb/tb_vpu_reduce.v" \
+    "tb_vpu_reduce" "VPU REDUCE TEST PASSED"
+
+run_test "MaxPool 2×2: CNN pooling layer" \
+    "iverilog -g2012 -DSIM -o sim/tb_maxpool_2x2 $TPC_FILES tb/tb_maxpool_2x2.v" \
+    "tb_maxpool_2x2" "MAXPOOL TEST PASSED"
+
+run_test "BatchNorm: Fused scale*x + bias" \
+    "iverilog -g2012 -DSIM -o sim/tb_batchnorm rtl/core/vector_unit.v tb/tb_batchnorm.v" \
+    "tb_batchnorm" "BATCHNORM TEST PASSED"
+
+run_test "AvgPool: SUM + divide" \
+    "iverilog -g2012 -DSIM -o sim/tb_avgpool rtl/core/vector_unit.v tb/tb_avgpool.v" \
+    "tb_avgpool" "AVGPOOL TEST PASSED"
+
+run_test "LeNet-5: Full CNN model" \
+    "iverilog -g2012 -DSIM -o sim/tb_lenet5 $TPC_FILES tb/tb_lenet5.v" \
+    "tb_lenet5" "LENET-5 TEST PASSED"
+
+run_test "ResNet-18 Block: BN→ReLU→BN→(+skip)→ReLU" \
+    "iverilog -g2012 -DSIM -o sim/tb_resnet18_block rtl/core/vector_unit.v tb/tb_resnet18_block.v" \
+    "tb_resnet18_block" "RESNET-18 BLOCK TEST PASSED"
+
+echo ""
+echo "═══════════════ REALISTIC MODEL TESTS ═══════════════"
+echo "(28×28 LeNet, 56×56 ResNet - using real RTL)"
+
+# Generate test vectors if they don't exist
+if [ ! -f "tests/realistic/lenet/test_vectors/layer1_im2col_int8.hex" ]; then
+    echo ""
+    echo "Generating LeNet test vectors..."
+    python3 tests/realistic/lenet/golden.py > /dev/null 2>&1
+fi
+
+# Note: These tests use the real systolic_array.v and vector_unit.v
+# They require the test vectors to be generated first by golden.py
+
+run_test "LeNet Layer1 Conv (28×28 realistic)" \
+    "iverilog -g2012 -o sim/tb_lenet_layer1 tests/realistic/lenet/tb_lenet_layer1_conv.v" \
+    "tb_lenet_layer1" "LENET LAYER1 CONV TEST PASSED"
+
+run_test "LeNet Layer3 Pool (24×24 realistic)" \
+    "iverilog -g2012 -o sim/tb_lenet_layer3 tests/realistic/lenet/tb_lenet_layer3_pool.v" \
+    "tb_lenet_layer3" "LENET LAYER3 POOL TEST PASSED"
+
+run_test "LeNet Layer7 FC (256→120 realistic)" \
+    "iverilog -g2012 -o sim/tb_lenet_layer7 tests/realistic/lenet/tb_lenet_layer7_fc.v" \
+    "tb_lenet_layer7" "LENET LAYER7 FC TEST PASSED"
+
+# Generate ResNet test vectors if needed
+if [ ! -f "tests/realistic/resnet_block/test_vectors/conv1_im2col_int8.hex" ]; then
+    echo ""
+    echo "Generating ResNet block test vectors..."
+    python3 tests/realistic/resnet_block/golden.py > /dev/null 2>&1
+fi
+
+run_test "ResNet Block (56×56×16 realistic)" \
+    "iverilog -g2012 -o sim/tb_resnet_block tests/realistic/resnet_block/tb_resnet_block.v" \
+    "tb_resnet_block" "RESNET BLOCK TEST PASSED"
+
+echo ""
+echo "═══════════════ PHASE C: REQUANTIZATION ═══════════════"
+echo "(INT32→INT8 requant, bias fusion, layer chaining)"
+
+# Generate Phase C test vectors if needed
+if [ ! -f "tests/realistic/phase_c/test_vectors/test1_input_int32.hex" ]; then
+    echo ""
+    echo "Generating Phase C test vectors..."
+    python3 tests/realistic/phase_c/golden.py > /dev/null 2>&1
+fi
+
+run_test "Requantization (INT32 → INT8)" \
+    "iverilog -g2012 -o sim/tb_requant tests/realistic/phase_c/tb_requant.v" \
+    "tb_requant" "PHASE_C_REQUANT TEST PASSED"
+
+run_test "Bias Fusion (GEMM + bias → requant)" \
+    "iverilog -g2012 -o sim/tb_bias_fusion tests/realistic/phase_c/tb_bias_fusion.v" \
+    "tb_bias_fusion" "PHASE_C_BIAS_FUSION TEST PASSED"
+
+run_test "Layer Chain (Conv → ReLU → Pool)" \
+    "iverilog -g2012 -o sim/tb_layer_chain tests/realistic/phase_c/tb_layer_chain.v" \
+    "tb_layer_chain" "PHASE_C_LAYER_CHAIN TEST PASSED"
+
+run_test "LeNet Chain (Conv1 → ReLU → Pool1)" \
+    "iverilog -g2012 -o sim/tb_lenet_chain tests/realistic/phase_c/tb_lenet_chain.v" \
+    "tb_lenet_chain" "PHASE_C_LENET_CHAIN TEST PASSED"
+
+echo ""
+echo "═══════════════ PHASE D: TRANSFORMER OPS ═══════════════"
+echo "(LayerNorm, Softmax, GELU, Attention)"
+
+# Generate Phase D test vectors if needed
+if [ ! -f "tests/realistic/phase_d/test_vectors/test1_x_int8.hex" ]; then
+    echo ""
+    echo "Generating Phase D test vectors..."
+    python3 tests/realistic/phase_d/golden.py > /dev/null 2>&1
+fi
+
+run_test "LayerNorm (hidden=64)" \
+    "iverilog -g2012 -o sim/tb_layernorm tests/realistic/phase_d/tb_layernorm.v" \
+    "tb_layernorm" "PHASE_D_LAYERNORM TEST PASSED"
+
+run_test "Softmax (16×16 attention scores)" \
+    "iverilog -g2012 -o sim/tb_softmax tests/realistic/phase_d/tb_softmax.v" \
+    "tb_softmax" "PHASE_D_SOFTMAX TEST PASSED"
+
+run_test "GELU (256-entry LUT)" \
+    "iverilog -g2012 -o sim/tb_gelu tests/realistic/phase_d/tb_gelu.v" \
+    "tb_gelu" "PHASE_D_GELU TEST PASSED"
+
+run_test "Attention (Q,K,V 8×16)" \
+    "iverilog -g2012 -o sim/tb_attention tests/realistic/phase_d/tb_attention.v" \
+    "tb_attention" "PHASE_D_ATTENTION TEST PASSED"
+
 echo ""
 echo "═══════════════ PYTHON MODEL TESTS ═══════════════"
 
@@ -163,7 +295,6 @@ echo "╚═══════════════════════�
 
 if [ $FAIL -eq 0 ]; then echo ">>> ALL TESTS PASSED! <<<"; exit 0
 else echo ">>> SOME TESTS FAILED <<<"; exit 1; fi
-
 echo ""
 echo "═══════════════ PYTHON MODEL TESTS (EXTENDED) ═══════════════"
 
@@ -174,15 +305,15 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 cd model && python3 dma_model.py
 if [ $? -eq 0 ]; then echo "✓ PASSED"; ((PASSED++)); else echo "✗ FAILED"; ((FAILED++)); fi
 cd ..
-
-echo ""
+        
+echo "" 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "TEST: VPU Python Model"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 cd model && python3 vpu_model.py
 if [ $? -eq 0 ]; then echo "✓ PASSED"; ((PASSED++)); else echo "✗ FAILED"; ((FAILED++)); fi
 cd ..
-
+        
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "TEST: LCP Python Model"
@@ -190,7 +321,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 cd model && python3 lcp_model.py
 if [ $? -eq 0 ]; then echo "✓ PASSED"; ((PASSED++)); else echo "✗ FAILED"; ((FAILED++)); fi
 cd ..
-
+    
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "TEST: TPC Integrated Python Model"
@@ -198,3 +329,4 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 cd model && python3 tpc_model.py
 if [ $? -eq 0 ]; then echo "✓ PASSED"; ((PASSED++)); else echo "✗ FAILED"; ((FAILED++)); fi
 cd ..
+

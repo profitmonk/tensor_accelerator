@@ -1,0 +1,153 @@
+[
+  {
+    "layer": "conv1",
+    "type": "im2col_gemm",
+    "im2col_shape": [
+      576,
+      25
+    ],
+    "weight_shape": [
+      6,
+      25
+    ],
+    "output_shape": [
+      1,
+      6,
+      24,
+      24
+    ],
+    "tiles_needed": 1,
+    "ops": [
+      "GEMM",
+      "ADD_BIAS",
+      "RELU"
+    ]
+  },
+  {
+    "layer": "pool1",
+    "type": "avgpool",
+    "input_shape": [
+      1,
+      6,
+      24,
+      24
+    ],
+    "output_shape": [
+      1,
+      6,
+      12,
+      12
+    ],
+    "ops": [
+      "VPU_SUM",
+      "VPU_SHIFT"
+    ]
+  },
+  {
+    "layer": "conv2",
+    "type": "im2col_gemm",
+    "im2col_shape": [
+      64,
+      150
+    ],
+    "weight_shape": [
+      16,
+      150
+    ],
+    "output_shape": [
+      1,
+      16,
+      8,
+      8
+    ],
+    "tiles_needed": 289,
+    "ops": [
+      "GEMM",
+      "ADD_BIAS",
+      "RELU"
+    ]
+  },
+  {
+    "layer": "pool2",
+    "type": "avgpool",
+    "input_shape": [
+      1,
+      16,
+      8,
+      8
+    ],
+    "output_shape": [
+      1,
+      16,
+      4,
+      4
+    ],
+    "ops": [
+      "VPU_SUM",
+      "VPU_SHIFT"
+    ]
+  },
+  {
+    "layer": "fc1",
+    "type": "gemm",
+    "input_shape": [
+      1,
+      256
+    ],
+    "weight_shape": [
+      120,
+      256
+    ],
+    "output_shape": [
+      1,
+      120
+    ],
+    "tiles_needed": 480,
+    "ops": [
+      "GEMM",
+      "ADD_BIAS",
+      "RELU"
+    ]
+  },
+  {
+    "layer": "fc2",
+    "type": "gemm",
+    "input_shape": [
+      1,
+      120
+    ],
+    "weight_shape": [
+      84,
+      120
+    ],
+    "output_shape": [
+      1,
+      84
+    ],
+    "ops": [
+      "GEMM",
+      "ADD_BIAS",
+      "RELU"
+    ]
+  },
+  {
+    "layer": "fc3",
+    "type": "gemm",
+    "input_shape": [
+      1,
+      84
+    ],
+    "weight_shape": [
+      10,
+      84
+    ],
+    "output_shape": [
+      1,
+      10
+    ],
+    "ops": [
+      "GEMM",
+      "ADD_BIAS"
+    ]
+  }
+]

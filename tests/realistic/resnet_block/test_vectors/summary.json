@@ -1,0 +1,25 @@
+{
+  "model": "ResNet Basic Block",
+  "channels": 16,
+  "spatial": 56,
+  "input_shape": [
+    1,
+    16,
+    56,
+    56
+  ],
+  "output_shape": [
+    1,
+    16,
+    56,
+    56
+  ],
+  "conv_gemm": {
+    "M": 3136,
+    "K": 144,
+    "N": 16
+  },
+  "tiles_per_conv": 14112,
+  "total_tiles": 28224,
+  "estimated_cycles": 705600
+}

@@ -1,0 +1,32 @@
+{
+  "test1_layernorm": {
+    "input_shape": [
+      1,
+      8,
+      64
+    ],
+    "hidden_dim": 64,
+    "x_scale": 0.1,
+    "gamma_scale": 0.01,
+    "output_scale": 0.1
+  },
+  "test2_softmax": {
+    "input_shape": [
+      16,
+      16
+    ],
+    "x_scale": 0.1
+  },
+  "test3_gelu": {
+    "input_size": 256,
+    "x_scale": 0.03125,
+    "output_scale": 0.03125
+  },
+  "test4_attention": {
+    "seq_len": 8,
+    "head_dim": 16,
+    "qk_scale": 0.01,
+    "v_scale": 0.1,
+    "output_scale": 0.1
+  }
+}

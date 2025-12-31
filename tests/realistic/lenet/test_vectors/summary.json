@@ -1,0 +1,75 @@
+{
+  "model": "LeNet-5",
+  "input_shape": [
+    1,
+    1,
+    28,
+    28
+  ],
+  "input_scale": 0.013309505768120289,
+  "layers": {
+    "layer1_conv": {
+      "type": "conv",
+      "input_shape": [
+        1,
+        1,
+        28,
+        28
+      ],
+      "output_shape": [
+        1,
+        6,
+        24,
+        24
+      ],
+      "weight_shape": [
+        6,
+        1,
+        5,
+        5
+      ],
+      "gemm_M": 576,
+      "gemm_K": 25,
+      "gemm_N": 6
+    },
+    "layer3_pool": {
+      "type": "avgpool",
+      "input_shape": [
+        1,
+        6,
+        24,
+        24
+      ],
+      "output_shape": [
+        1,
+        6,
+        12,
+        12
+      ],
+      "kernel_size": 2
+    },
+    "layer7_fc": {
+      "type": "fc",
+      "input_shape": [
+        1,
+        256
+      ],
+      "output_shape": [
+        1,
+        120
+      ],
+      "weight_shape": [
+        120,
+        256
+      ],
+      "gemm_M": 1,
+      "gemm_K": 256,
+      "gemm_N": 120
+    }
+  },
+  "output_logits_shape": [
+    1,
+    10
+  ],
+  "predicted_class": 7
+}

@@ -1,0 +1,70 @@
+{
+  "test1": {
+    "input_size": 64,
+    "shifts": [
+      7,
+      8,
+      9,
+      10
+    ]
+  },
+  "test2": {
+    "M": 16,
+    "N": 8,
+    "shift": 8
+  },
+  "test3": {
+    "input_shape": [
+      1,
+      1,
+      16,
+      16
+    ],
+    "conv_out_shape": [
+      1,
+      4,
+      14,
+      14
+    ],
+    "pool_out_shape": [
+      1,
+      4,
+      7,
+      7
+    ],
+    "im2col_shape": [
+      196,
+      9
+    ],
+    "weight_flat_shape": [
+      9,
+      4
+    ],
+    "shift": 7
+  },
+  "test4": {
+    "input_shape": [
+      1,
+      1,
+      28,
+      28
+    ],
+    "conv_out_shape": [
+      1,
+      6,
+      24,
+      24
+    ],
+    "pool_out_shape": [
+      1,
+      6,
+      12,
+      12
+    ],
+    "im2col_shape": [
+      576,
+      25
+    ],
+    "shift": 8
+  }
+}
