@@ -1,0 +1,11 @@
+{
+  "name": "mlp_medium",
+  "type": "mlp",
+  "architecture": [
+    256,
+    128,
+    10
+  ],
+  "seed": 42,
+  "instructions": 11
+}

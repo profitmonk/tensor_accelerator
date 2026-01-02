@@ -1,0 +1,11 @@
+{
+  "name": "mlp_small",
+  "type": "mlp",
+  "architecture": [
+    64,
+    32,
+    10
+  ],
+  "seed": 42,
+  "instructions": 11
+}

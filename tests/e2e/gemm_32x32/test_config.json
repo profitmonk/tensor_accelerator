@@ -1,0 +1,33 @@
+{
+  "name": "gemm_32x32",
+  "type": "gemm",
+  "dimensions": {
+    "M": 32,
+    "N": 32,
+    "K": 32
+  },
+  "seed": 42,
+  "input_range": {
+    "min": -64,
+    "max": 63
+  },
+  "weight_range": {
+    "min": -64,
+    "max": 63
+  },
+  "output_range": {
+    "min": -21058,
+    "max": 27293
+  },
+  "instructions": 3,
+  "files": {
+    "asm": "/home/claude/tensor_accelerator/tests/e2e/gemm_32x32/program.asm",
+    "hex": "/home/claude/tensor_accelerator/tests/e2e/gemm_32x32/program.hex",
+    "weights_bin": "/home/claude/tensor_accelerator/tests/e2e/gemm_32x32/weights.bin",
+    "weights_memh": "/home/claude/tensor_accelerator/tests/e2e/gemm_32x32/weights.memh",
+    "input_bin": "/home/claude/tensor_accelerator/tests/e2e/gemm_32x32/input.bin",
+    "input_memh": "/home/claude/tensor_accelerator/tests/e2e/gemm_32x32/input.memh",
+    "golden_bin": "/home/claude/tensor_accelerator/tests/e2e/gemm_32x32/golden.bin",
+    "golden_memh": "/home/claude/tensor_accelerator/tests/e2e/gemm_32x32/golden.memh"
+  }
+}

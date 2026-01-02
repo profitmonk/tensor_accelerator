@@ -32,16 +32,27 @@ class Opcode(IntEnum):
     HALT     = 0xFF
 
 class TensorSubop(IntEnum):
-    GEMM      = 0x01
-    GEMM_ACC  = 0x02
-    GEMM_RELU = 0x03
-    GEMM_BIAS = 0x04
+    GEMM         = 0x01
+    GEMM_ACC     = 0x02
+    GEMM_RELU    = 0x03
+    GEMM_BIAS    = 0x04
+    IM2COL       = 0x10  # im2col transform for conv
+    MAXPOOL      = 0x20  # max pooling
+    AVGPOOL      = 0x21  # average pooling
+    TRANSPOSE    = 0x30  # 2D matrix transpose
+    TRANSPOSE_ND = 0x31  # N-dimensional transpose
 
 class VectorSubop(IntEnum):
+    # Elementwise arithmetic
     ADD        = 0x01
     SUB        = 0x02
     MUL        = 0x03
     MADD       = 0x04
+    DIV        = 0x05
+    ADD_BCAST  = 0x06  # Add with broadcasting
+    BIAS_ADD   = 0x07  # Add bias (broadcast over spatial)
+    
+    # Activations
     RELU       = 0x10
     GELU       = 0x11
     SILU       = 0x12
@@ -49,18 +60,32 @@ class VectorSubop(IntEnum):
     TANH       = 0x14
     EXP        = 0x15
     RSQRT      = 0x16
+    
+    # Reductions
     SUM        = 0x20
     MAX        = 0x21
     MIN        = 0x22
+    GLOBAL_AVG = 0x23  # Global average pooling
+    
+    # Memory/data movement
     LOAD       = 0x30
     STORE      = 0x31
     BCAST      = 0x32
     MOV        = 0x33
     ZERO       = 0x34
     SCALE      = 0x35
+    SCALE_SHIFT = 0x36  # y = x * scale + shift
+    
+    # Softmax passes
     SOFTMAX_P1 = 0x40  # Pass 1: compute max
     SOFTMAX_P2 = 0x41  # Pass 2: exp and sum
     SOFTMAX_P3 = 0x42  # Pass 3: normalize
+    
+    # Normalization
+    BATCHNORM      = 0x50  # BatchNorm: y = x * scale + bias (per channel)
+    LAYERNORM_MEAN = 0x51  # LayerNorm pass 1: compute mean
+    LAYERNORM_VAR  = 0x52  # LayerNorm pass 2: compute variance
+    LAYERNORM_NORM = 0x53  # LayerNorm pass 3: normalize
 
 class DMASubop(IntEnum):
     LOAD_2D   = 0x01
@@ -251,27 +276,75 @@ class Assembler:
         if op == 'TENSOR':
             instr.opcode = Opcode.TENSOR
             
-            if subop == 'GEMM':
-                instr.subop = TensorSubop.GEMM
-            elif subop == 'GEMM_ACC':
-                instr.subop = TensorSubop.GEMM_ACC
-            elif subop == 'GEMM_RELU':
-                instr.subop = TensorSubop.GEMM_RELU
-            elif subop == 'GEMM_BIAS':
-                instr.subop = TensorSubop.GEMM_BIAS
-            else:
-                instr.subop = TensorSubop.GEMM
+            tensor_subop_map = {
+                'GEMM': TensorSubop.GEMM,
+                'GEMM_ACC': TensorSubop.GEMM_ACC,
+                'GEMM_RELU': TensorSubop.GEMM_RELU,
+                'GEMM_BIAS': TensorSubop.GEMM_BIAS,
+                'IM2COL': TensorSubop.IM2COL,
+                'MAXPOOL': TensorSubop.MAXPOOL,
+                'AVGPOOL': TensorSubop.AVGPOOL,
+                'TRANSPOSE': TensorSubop.TRANSPOSE,
+                'TRANSPOSE_ND': TensorSubop.TRANSPOSE_ND,
+            }
             
-            # Format: TENSOR.GEMM dst, src_act, src_wt, M, N, K [, flags]
-            if len(ops) >= 6:
-                instr.dst = self.parse_value(ops[0])
-                instr.src0 = self.parse_value(ops[1])
-                instr.src1 = self.parse_value(ops[2])
-                instr.dim_m = self.parse_value(ops[3])
-                instr.dim_n = self.parse_value(ops[4])
-                instr.dim_k = self.parse_value(ops[5])
-                if len(ops) > 6:
-                    instr.flags = self.parse_value(ops[6])
+            instr.subop = tensor_subop_map.get(subop, TensorSubop.GEMM)
+            
+            # Format varies by operation
+            if subop in ['GEMM', 'GEMM_ACC', 'GEMM_RELU', 'GEMM_BIAS']:
+                # TENSOR.GEMM dst, src_act, src_wt, M, N, K [, flags]
+                if len(ops) >= 6:
+                    instr.dst = self.parse_value(ops[0])
+                    instr.src0 = self.parse_value(ops[1])
+                    instr.src1 = self.parse_value(ops[2])
+                    instr.dim_m = self.parse_value(ops[3])
+                    instr.dim_n = self.parse_value(ops[4])
+                    instr.dim_k = self.parse_value(ops[5])
+                    if len(ops) > 6:
+                        instr.flags = self.parse_value(ops[6])
+            elif subop == 'IM2COL':
+                # TENSOR.IM2COL dst, src, C, H, W, kH, kW, stride, pad
+                if len(ops) >= 9:
+                    instr.dst = self.parse_value(ops[0])
+                    instr.src0 = self.parse_value(ops[1])
+                    # Pack C, H, W into dim fields
+                    instr.dim_m = self.parse_value(ops[2])  # C
+                    instr.dim_n = self.parse_value(ops[3])  # H
+                    instr.dim_k = self.parse_value(ops[4])  # W
+                    # Pack kH, kW, stride, pad into src1 and flags
+                    kH = self.parse_value(ops[5])
+                    kW = self.parse_value(ops[6])
+                    stride = self.parse_value(ops[7])
+                    pad = self.parse_value(ops[8])
+                    instr.src1 = (kH << 8) | kW
+                    instr.flags = (stride << 8) | pad
+            elif subop in ['MAXPOOL', 'AVGPOOL']:
+                # TENSOR.MAXPOOL dst, src, C, H, W, kH, kW, sH, sW
+                if len(ops) >= 9:
+                    instr.dst = self.parse_value(ops[0])
+                    instr.src0 = self.parse_value(ops[1])
+                    instr.dim_m = self.parse_value(ops[2])  # C
+                    instr.dim_n = self.parse_value(ops[3])  # H
+                    instr.dim_k = self.parse_value(ops[4])  # W
+                    kH = self.parse_value(ops[5])
+                    kW = self.parse_value(ops[6])
+                    sH = self.parse_value(ops[7])
+                    sW = self.parse_value(ops[8])
+                    instr.src1 = (kH << 8) | kW
+                    instr.flags = (sH << 8) | sW
+            elif subop == 'TRANSPOSE':
+                # TENSOR.TRANSPOSE dst, src, M, N
+                if len(ops) >= 4:
+                    instr.dst = self.parse_value(ops[0])
+                    instr.src0 = self.parse_value(ops[1])
+                    instr.dim_m = self.parse_value(ops[2])
+                    instr.dim_n = self.parse_value(ops[3])
+            elif subop == 'TRANSPOSE_ND':
+                # TENSOR.TRANSPOSE_ND dst, src, shape..., perm...
+                # Complex - just store dst, src for now
+                if len(ops) >= 2:
+                    instr.dst = self.parse_value(ops[0])
+                    instr.src0 = self.parse_value(ops[1])
         
         #----------------------------------------------------------------------
         # VECTOR operations
@@ -280,10 +353,15 @@ class Assembler:
             instr.opcode = Opcode.VECTOR
             
             subop_map = {
+                # Elementwise
                 'ADD': VectorSubop.ADD,
                 'SUB': VectorSubop.SUB,
                 'MUL': VectorSubop.MUL,
                 'MADD': VectorSubop.MADD,
+                'DIV': VectorSubop.DIV,
+                'ADD_BCAST': VectorSubop.ADD_BCAST,
+                'BIAS_ADD': VectorSubop.BIAS_ADD,
+                # Activations
                 'RELU': VectorSubop.RELU,
                 'GELU': VectorSubop.GELU,
                 'SILU': VectorSubop.SILU,
@@ -291,18 +369,28 @@ class Assembler:
                 'TANH': VectorSubop.TANH,
                 'EXP': VectorSubop.EXP,
                 'RSQRT': VectorSubop.RSQRT,
+                # Reductions
                 'SUM': VectorSubop.SUM,
                 'MAX': VectorSubop.MAX,
                 'MIN': VectorSubop.MIN,
+                'GLOBAL_AVG': VectorSubop.GLOBAL_AVG,
+                # Memory/data
                 'LOAD': VectorSubop.LOAD,
                 'STORE': VectorSubop.STORE,
                 'BCAST': VectorSubop.BCAST,
                 'MOV': VectorSubop.MOV,
                 'ZERO': VectorSubop.ZERO,
                 'SCALE': VectorSubop.SCALE,
+                'SCALE_SHIFT': VectorSubop.SCALE_SHIFT,
+                # Softmax
                 'SOFTMAX_P1': VectorSubop.SOFTMAX_P1,
                 'SOFTMAX_P2': VectorSubop.SOFTMAX_P2,
                 'SOFTMAX_P3': VectorSubop.SOFTMAX_P3,
+                # Normalization
+                'BATCHNORM': VectorSubop.BATCHNORM,
+                'LAYERNORM_MEAN': VectorSubop.LAYERNORM_MEAN,
+                'LAYERNORM_VAR': VectorSubop.LAYERNORM_VAR,
+                'LAYERNORM_NORM': VectorSubop.LAYERNORM_NORM,
             }
             
             instr.subop = subop_map.get(subop, 0)
@@ -315,37 +403,118 @@ class Assembler:
                     instr.src0 = self.parse_value(ops[1])
                     if len(ops) > 2:
                         instr.dim_m = self.parse_value(ops[2])
-            elif subop in ['ADD', 'SUB', 'MUL']:
-                # VEC.ADD vd, vs1, vs2
-                if len(ops) >= 3:
+            elif subop in ['ADD', 'SUB', 'MUL', 'DIV']:
+                # VEC.ADD dst, src1, src2, count
+                if len(ops) >= 4:
                     instr.dst = self.parse_value(ops[0])
                     instr.src0 = self.parse_value(ops[1])
                     instr.src1 = self.parse_value(ops[2])
-            elif subop in ['RELU', 'GELU', 'SILU', 'EXP', 'RSQRT', 'TANH']:
-                # VEC.RELU vd, vs1
+                    instr.dim_m = self.parse_value(ops[3])
+                elif len(ops) >= 3:
+                    instr.dst = self.parse_value(ops[0])
+                    instr.src0 = self.parse_value(ops[1])
+                    instr.src1 = self.parse_value(ops[2])
+            elif subop == 'ADD_BCAST':
+                # VEC.ADD_BCAST dst, src1, src2, count1, count2
+                if len(ops) >= 5:
+                    instr.dst = self.parse_value(ops[0])
+                    instr.src0 = self.parse_value(ops[1])
+                    instr.src1 = self.parse_value(ops[2])
+                    instr.dim_m = self.parse_value(ops[3])
+                    instr.dim_n = self.parse_value(ops[4])
+            elif subop == 'BIAS_ADD':
+                # VEC.BIAS_ADD dst, src, bias, M, N
+                if len(ops) >= 5:
+                    instr.dst = self.parse_value(ops[0])
+                    instr.src0 = self.parse_value(ops[1])
+                    instr.src1 = self.parse_value(ops[2])
+                    instr.dim_m = self.parse_value(ops[3])
+                    instr.dim_n = self.parse_value(ops[4])
+            elif subop in ['RELU', 'GELU', 'SILU', 'EXP', 'RSQRT', 'TANH', 'SIGMOID']:
+                # VEC.RELU dst, src, count
                 if len(ops) >= 2:
                     instr.dst = self.parse_value(ops[0])
                     instr.src0 = self.parse_value(ops[1])
+                    if len(ops) > 2:
+                        instr.src1 = self.parse_value(ops[2])  # Count in src1
             elif subop in ['SUM', 'MAX', 'MIN']:
                 # VEC.SUM vd, vs1
                 if len(ops) >= 2:
                     instr.dst = self.parse_value(ops[0])
                     instr.src0 = self.parse_value(ops[1])
+            elif subop == 'GLOBAL_AVG':
+                # VEC.GLOBAL_AVG dst, src, channels, spatial_size
+                if len(ops) >= 4:
+                    instr.dst = self.parse_value(ops[0])
+                    instr.src0 = self.parse_value(ops[1])
+                    instr.dim_m = self.parse_value(ops[2])  # channels
+                    instr.dim_n = self.parse_value(ops[3])  # spatial
             elif subop == 'BCAST':
                 # VEC.BCAST vd, imm
                 if len(ops) >= 2:
                     instr.dst = self.parse_value(ops[0])
-                    instr.dim_n = self.parse_value(ops[1])  # Immediate in dim_n
+                    instr.dim_n = self.parse_value(ops[1])
             elif subop == 'SCALE':
-                # VEC.SCALE vd, vs1, scale_factor
-                if len(ops) >= 3:
+                # VEC.SCALE dst, src, scale, count
+                if len(ops) >= 4:
                     instr.dst = self.parse_value(ops[0])
                     instr.src0 = self.parse_value(ops[1])
-                    instr.dim_n = self.parse_value(ops[2])  # Scale in dim_n
+                    instr.dim_n = self.parse_value(ops[2])  # scale
+                    instr.dim_m = self.parse_value(ops[3])  # count
+                elif len(ops) >= 3:
+                    instr.dst = self.parse_value(ops[0])
+                    instr.src0 = self.parse_value(ops[1])
+                    instr.dim_n = self.parse_value(ops[2])
+            elif subop == 'SCALE_SHIFT':
+                # VEC.SCALE_SHIFT dst, src, scale, bias, size, count
+                if len(ops) >= 6:
+                    instr.dst = self.parse_value(ops[0])
+                    instr.src0 = self.parse_value(ops[1])
+                    instr.src1 = self.parse_value(ops[2])  # scale addr
+                    instr.dim_m = self.parse_value(ops[3])  # bias addr (packed)
+                    instr.dim_n = self.parse_value(ops[4])  # size
+                    instr.dim_k = self.parse_value(ops[5])  # count
             elif subop == 'ZERO':
                 # VEC.ZERO vd
                 if len(ops) >= 1:
                     instr.dst = self.parse_value(ops[0])
+            elif subop in ['SOFTMAX_P1', 'SOFTMAX_P2', 'SOFTMAX_P3']:
+                # SOFTMAX passes: dst, src, [scratch], size, vectors
+                if len(ops) >= 4:
+                    instr.dst = self.parse_value(ops[0])
+                    instr.src0 = self.parse_value(ops[1])
+                    if subop == 'SOFTMAX_P1':
+                        instr.dim_m = self.parse_value(ops[2])
+                        instr.dim_n = self.parse_value(ops[3])
+                    else:
+                        instr.src1 = self.parse_value(ops[2])  # scratch
+                        instr.dim_m = self.parse_value(ops[3])
+                        if len(ops) > 4:
+                            instr.dim_n = self.parse_value(ops[4])
+            elif subop == 'BATCHNORM':
+                # VEC.BATCHNORM dst, src, scale, bias, channels, spatial
+                if len(ops) >= 6:
+                    instr.dst = self.parse_value(ops[0])
+                    instr.src0 = self.parse_value(ops[1])
+                    instr.src1 = self.parse_value(ops[2])  # scale addr
+                    instr.dim_m = self.parse_value(ops[3])  # bias addr
+                    instr.dim_n = self.parse_value(ops[4])  # channels
+                    instr.dim_k = self.parse_value(ops[5])  # spatial
+            elif subop in ['LAYERNORM_MEAN', 'LAYERNORM_VAR', 'LAYERNORM_NORM']:
+                # Various LayerNorm passes
+                if len(ops) >= 4:
+                    instr.dst = self.parse_value(ops[0])
+                    instr.src0 = self.parse_value(ops[1])
+                    if subop == 'LAYERNORM_MEAN':
+                        instr.dim_m = self.parse_value(ops[2])
+                        instr.dim_n = self.parse_value(ops[3])
+                    else:
+                        instr.src1 = self.parse_value(ops[2])
+                        instr.dim_m = self.parse_value(ops[3])
+                        if len(ops) > 4:
+                            instr.dim_n = self.parse_value(ops[4])
+                        if len(ops) > 5:
+                            instr.dim_k = self.parse_value(ops[5])
         
         #----------------------------------------------------------------------
         # DMA operations
